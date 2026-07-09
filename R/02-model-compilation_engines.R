@@ -6,12 +6,14 @@
 #'
 #' @param traj A `levaim_trajectory` object.
 #' @param engine Modeling engine. One of `"spline"` or `"gp"`.
+#' @param spline_k Optional basis dimension for spline smooths.
 #'
 #' @return A formula.
 #' @keywords internal
 compile_formula <- function(
     traj,
-    engine = c("spline", "gp")
+    engine = c("spline", "gp"),
+    spline_k = NULL
 ) {
   engine <- match.arg(engine)
 
@@ -21,7 +23,7 @@ compile_formula <- function(
 
   switch(
     engine,
-    spline = compile_formula_spline(traj),
+    spline = compile_formula_spline(traj, k = spline_k),
     gp = compile_formula_gp(traj)
   )
 }
@@ -32,16 +34,17 @@ compile_formula <- function(
 #' Compiles a LEVAiM trajectory into an `mgcv::gam()`-style formula.
 #'
 #' @param traj A `levaim_trajectory` object.
+#' @param k Optional basis dimension for spline smooths.
 #'
 #' @return A formula.
 #' @keywords internal
-compile_formula_spline <- function(traj) {
+compile_formula_spline <- function(traj, k = NULL) {
   spec <- traj$spec
   design <- traj$design
 
   rhs_terms <- c(
     compile_covariate_terms_spline(spec$covariates),
-    compile_time_terms_spline(spec$time$column, design),
+    compile_time_terms_spline(spec$time$column, design, k = k),
     paste0("s(", spec$subject$column, ", bs = 're')")
   )
 
@@ -142,15 +145,17 @@ compile_covariate_terms_gp <- function(covariates) {
 #' Compile time trajectory terms for spline/GAM models
 #'
 #' @keywords internal
-compile_time_terms_spline <- function(time_col, design) {
-  if (design$type == "shared") {
-    return(paste0("s(", time_col, ")"))
+compile_time_terms_spline <- function(time_col, design, k = NULL) {
+  k_arg <- if (is.null(k)) "" else paste0(", k = ", as.integer(k))
+
+  if (design$type %in% c("shared", "naive")) {
+    return(paste0("s(", time_col, k_arg, ")"))
   }
 
   if (design$type == "varying") {
     by_expr <- trajectory_by_expr(design)
 
-    return(paste0("s(", time_col, ", by = ", by_expr, ")"))
+    return(paste0("s(", time_col, ", by = ", by_expr, k_arg, ")"))
   }
 
   cli::cli_abort("Unknown trajectory design type: {.val {design$type}}.")
@@ -161,7 +166,7 @@ compile_time_terms_spline <- function(time_col, design) {
 #'
 #' @keywords internal
 compile_time_terms_gp <- function(time_col, design) {
-  if (design$type == "shared") {
+  if (design$type %in% c("shared", "naive")) {
     return(paste0("gp(", time_col, ")"))
   }
 

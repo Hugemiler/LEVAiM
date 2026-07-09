@@ -3,6 +3,7 @@
 #####
 
 ## PUBLIC functions
+# usethis::use_package("data.table")
 
 #' Read HUMAnN functional profiles
 #'
@@ -95,6 +96,22 @@ read_humann <- function(
 }
 
 ## PRIVATE functions
+
+#' Fast-read a HUMAnN-style table
+#'
+#' @keywords internal
+read_humann_table_fast <- function(path) {
+  data.table::fread(
+    file = path,
+    sep = "\t",
+    header = TRUE,
+    quote = "",
+    check.names = FALSE,
+    data.table = FALSE,
+    showProgress = TRUE
+    # showProgress = interactive()
+  )
+}
 
 #' Detect whether HUMAnN input is single-profile or merged
 #'
@@ -236,22 +253,15 @@ read_humann_single <- function(
   units <- match.arg(units)
   stratification <- match.arg(stratification)
 
-  raw <- utils::read.table(
-    path,
-    sep = "\t",
-    header = TRUE,
-    check.names = FALSE,
-    quote = "",
-    stringsAsFactors = FALSE
-  )
-
+  raw <- read_humann_table_fast(path)
+  
   if (ncol(raw) < 2L) {
     cli::cli_abort("Single HUMAnN profile must have at least two columns.")
   }
-
+  
   feature_col <- colnames(raw)[[1]]
   value_col <- colnames(raw)[[2]]
-
+  
   feature_ids <- raw[[feature_col]]
 
   if (feature_space == "auto") {
@@ -310,17 +320,17 @@ read_humann_merged <- function(
   units <- match.arg(units)
   stratification <- match.arg(stratification)
 
-  df <- utils::read.table(
-    path,
-    sep = "\t",
-    header = TRUE,
-    row.names = 1,
-    check.names = FALSE,
-    quote = "",
-    stringsAsFactors = FALSE
-  )
-
-  feature_ids <- rownames(df)
+  df <- read_humann_table_fast(path)
+  
+  if (ncol(df) < 2L) {
+    cli::cli_abort("Merged HUMAnN table must have at least two columns.")
+  }
+  
+  feature_col <- colnames(df)[[1]]
+  feature_ids <- df[[feature_col]]
+  
+  abund <- df[, -1, drop = FALSE]
+  rownames(abund) <- feature_ids
 
   if (feature_space == "auto") {
     feature_space <- detect_humann_feature_space(feature_ids, path)
@@ -336,8 +346,8 @@ read_humann_merged <- function(
     remove_unmapped = remove_unmapped
   )
 
-  out <- as.data.frame(t(df[keep, , drop = FALSE]), check.names = FALSE)
-
+  out <- as.data.frame(t(abund[keep, , drop = FALSE]), check.names = FALSE)
+  
   if (clean_sample_names) {
     rownames(out) <- clean_humann_sample_names(rownames(out))
   }

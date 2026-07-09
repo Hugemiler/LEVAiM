@@ -93,7 +93,7 @@ print.levaim_results <- function(x, ...) {
   cli::cli_text("Samples: {x$n}")
 
   cli::cli_text("Formula:")
-  cli::cli_text("{deparse(x$formula)}")
+  cat(deparse(x$formula), sep = "\n")
 
   cli::cli_h2("Model fit")
   cli::cli_text("R-squared: {round(x$r_sq, 4)}")
@@ -103,7 +103,7 @@ print.levaim_results <- function(x, ...) {
   cli::cli_text("Type: {.field {x$trajectory_type}}")
 
   if (!is.null(x$trajectory_by)) {
-    cli::cli_text("Varying by: {.field {paste(x$trajectory_by, collapse = ' × ')}}")
+    cli::cli_text("Varying by: {.field {paste(x$trajectory_by, collapse = ' x ')}}")
   }
 
   cli::cli_h2("Smooth terms")

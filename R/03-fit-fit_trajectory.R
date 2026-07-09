@@ -10,6 +10,7 @@
 #' @param mf A `levaim_model_frame`.
 #'
 #' @return A `levaim_fit`.
+#' @importFrom stats formula predict
 #' @export
 fit_trajectory <- function(mf) {
 

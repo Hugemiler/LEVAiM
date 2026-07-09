@@ -1,6 +1,6 @@
 Package: LEVAiM
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Longitudinal Evidence and Variation Analysis in Microbiomes
 Version: 0.1.0
 Authors@R: c(
     person(
@@ -9,8 +9,11 @@ Authors@R: c(
       role = c("aut", "cre")
     )
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
+Author: Jane Doe [aut, cre]
+Maintainer: Jane Doe <jane@example.com>
+Description: Tools for organizing longitudinal multi-assay microbiome data,
+    declaring trajectory models, fitting spline-based trajectories, and
+    extracting compact analytical summaries.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
@@ -20,7 +23,9 @@ Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 Imports: 
-    cli
+    cli,
+    data.table,
+    mgcv
 Config/roxygen2/version: 8.0.0
 VignetteBuilder: knitr
 RoxygenNote: 7.3.3

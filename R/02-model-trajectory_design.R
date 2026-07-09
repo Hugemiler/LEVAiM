@@ -1,12 +1,12 @@
 #' Define a naive (non-varying) trajectory
 #'
-#' A naive trajectory uses a single time function across all samples.
+#' A naive trajectory uses a single shared time function across all samples.
 #'
 #' @return A LEVAiM trajectory design object.
 #' @export
 naive_trajectory <- function() {
   structure(
-    list(type = "naive", by = NULL, interaction = FALSE),
+    list(type = "shared", by = NULL, interaction = FALSE),
     class = "levaim_trajectory_design"
   )
 }

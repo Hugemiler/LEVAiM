@@ -7,7 +7,11 @@
 
 <!-- badges: end -->
 
-The goal of LEVAiM is to …
+LEVAiM is an R package for organizing longitudinal multi-assay
+microbiome data and fitting trajectory models to features that change
+over time. The current working path focuses on a spline/GAM backend:
+dataset -\> model specification -\> trajectory design -\> model frame
+-\> fit -\> compact results.
 
 ## Installation
 
@@ -21,33 +25,114 @@ pak::pak("Hugemiler/LEVAiM")
 
 ## Example
 
-This is a basic example which shows you how to solve a common problem:
+This example builds a small longitudinal dataset, models one microbial
+feature, and compares time trajectories across treatment groups.
 
 ``` r
 library(LEVAiM)
-## basic example code
+
+set.seed(1)
+
+metadata <- expand.grid(
+  subject = sprintf("S%02d", 1:12),
+  week = c(0, 1, 2, 4, 8),
+  KEEP.OUT.ATTRS = FALSE
+)
+
+metadata$sample_id <- sprintf("%s_W%s", metadata$subject, metadata$week)
+metadata$treatment <- rep(
+  rep(c("control", "fiber"), each = 6),
+  each = length(unique(metadata$week))
+)
+metadata$subject <- factor(metadata$subject)
+metadata$treatment <- factor(metadata$treatment)
+rownames(metadata) <- metadata$sample_id
+
+subject_shift <- rnorm(nlevels(metadata$subject), sd = 0.15)
+names(subject_shift) <- levels(metadata$subject)
+
+fiber_gain <- ifelse(
+  metadata$treatment == "fiber",
+  0.35 * log1p(metadata$week),
+  0
+)
+
+assay <- data.frame(
+  `Faecalibacterium prausnitzii` =
+    2 +
+    0.15 * metadata$week -
+    0.015 * metadata$week^2 +
+    fiber_gain +
+    subject_shift[metadata$subject] +
+    rnorm(nrow(metadata), sd = 0.12),
+  check.names = FALSE
+)
+rownames(assay) <- rownames(metadata)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = assay),
+  metadata = metadata,
+  time_col = "week",
+  subject_col = "subject"
+)
+
+spec <- model_spec(
+  response = assay_feature("taxa", "Faecalibacterium prausnitzii"),
+  subject = subject_var("subject"),
+  time = time_var("week"),
+  covariates = list(group_effect("treatment"))
+)
+
+traj <- trajectory(
+  spec,
+  design = varying_trajectory("treatment")
+)
+
+mf <- model_frame(
+  ds,
+  traj,
+  control = trajectory_control(engine = "spline")
+)
+
+fit <- fit_trajectory(mf)
+results <- trajectory_results(fit)
+
+results
+#> 
+#> ── LEVAiM trajectory results ───────────────────────────────────────────────────
+#> Response: taxa / Faecalibacterium prausnitzii
+#> Engine: spline
+#> Family: gaussian
+#> Transform: identity
+#> Samples: 60
+#> Formula:
+#> .y ~ treatment + s(week, by = treatment, k = 5) + s(subject, 
+#>     bs = "re")
+#> 
+#> ── Model fit ──
+#> 
+#> R-squared: 0.9366
+#> Deviance explained: 95.01%
+#> 
+#> ── Trajectory design ──
+#> 
+#> Type: varying
+#> Varying by: treatment
+#> 
+#> ── Smooth terms ──
+#> 
+#>                                edf Ref.df         F      p-value
+#> s(week):treatmentcontrol 0.9455358      2 10.271119 9.260387e-05
+#> s(week):treatmentfiber   1.8831218      2 27.436543 0.000000e+00
+#> s(subject)               8.7537553     11  3.843635 6.465531e-05
 ```
 
-What is special about using `README.Rmd` instead of just `README.md`?
-You can include R chunks like so:
+The returned `levaim_results` object keeps the original formula, fit
+metrics, and smooth-term table so downstream code can inspect the fitted
+trajectory without depending directly on the backend summary object.
 
 ``` r
-summary(cars)
-#>      speed           dist       
-#>  Min.   : 4.0   Min.   :  2.00  
-#>  1st Qu.:12.0   1st Qu.: 26.00  
-#>  Median :15.0   Median : 36.00  
-#>  Mean   :15.4   Mean   : 42.98  
-#>  3rd Qu.:19.0   3rd Qu.: 56.00  
-#>  Max.   :25.0   Max.   :120.00
+plot(fit)
 ```
 
-You’ll still need to render `README.Rmd` regularly, to keep `README.md`
-up-to-date. `devtools::build_readme()` is handy for this.
-
-You can also embed plots, for example:
-
-<img src="man/figures/README-pressure-1.png" width="100%" />
-
-In that case, don’t forget to commit and push the resulting figure
-files, so they display on GitHub and CRAN.
+<img src="man/figures/README-smooth-plot-1.png" width="100%" />

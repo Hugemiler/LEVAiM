@@ -10,5 +10,5 @@ naive_trajectory()
 A LEVAiM trajectory design object.
 }
 \description{
-A naive trajectory uses a single time function across all samples.
+A naive trajectory uses a single shared time function across all samples.
 }

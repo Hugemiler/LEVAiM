@@ -286,7 +286,8 @@ read_metaphlan_merged <- function(
 }
 
 clean_metaphlan_sample_names <- function(x) {
-  x <- sub("_profile$", "", x)
+  x <- sub("_mpa.*$", "", x)
+  x <- sub("_mpa$", "", x)
   x <- sub("\\.txt$", "", x)
   x <- sub("\\.tsv$", "", x)
   x

@@ -4,7 +4,7 @@
 \alias{compile_time_terms_spline}
 \title{Compile time trajectory terms for spline/GAM models}
 \usage{
-compile_time_terms_spline(time_col, design)
+compile_time_terms_spline(time_col, design, k = NULL)
 }
 \description{
 Compile time trajectory terms for spline/GAM models

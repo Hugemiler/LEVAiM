@@ -74,9 +74,16 @@ model_frame <- function(
     transform = control$transform
   )
 
+  spline_k <- NULL
+  if (control$engine == "spline") {
+    time_col <- traj$spec$time$column
+    spline_k <- min(control$spline$k, length(unique(data[[time_col]])))
+  }
+
   formula <- compile_formula(
     traj = traj,
-    engine = control$engine
+    engine = control$engine,
+    spline_k = spline_k
   )
 
   structure(
