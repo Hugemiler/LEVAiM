@@ -1,0 +1,92 @@
+---
+title: "Loading data with LEVAiM"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Baby steps with LEVAiM}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Reading MetaPhlAn profiles
+
+LEVAiM starts from bioBakery-style feature tables. The first supported input is MetaPhlAn 3/4 output.
+
+```{r setup}
+library(LEVAiM)
+```
+
+## Reading a merged MetaPhlAn table
+
+Merged MetaPhlAn tables are usually produced with `merge_metaphlan_tables.py`.
+
+```{r eval=FALSE}
+taxa <- read_metaphlan(
+  "some_merged_file.tsv",
+  input_type = "merged",
+  tax_level = "species"
+)
+
+dim(taxa)
+head(taxa[, 1:5])
+```
+
+The returned object is a `data.frame` with samples as rows and taxa as columns.
+
+## Reading multiple single-profile files
+
+You can also pass a vector of single MetaPhlAn profile paths.
+
+```{r eval=FALSE}
+taxa <- read_metaphlan(
+  c("s1.tsv", "s2.tsv"),
+  input_type = "single",
+  tax_level = "species"
+)
+
+dim(taxa)
+head(taxa[, 1:5])
+```
+
+## Auto-detection
+
+When possible, LEVAiM can try to detect whether the input is a single profile or a merged table.
+
+```{r eval=FALSE}
+taxa <- read_metaphlan(
+  "some_merged_file.tsv",
+  input_type = "auto"
+)
+```
+
+## Keeping unclassified abundance
+
+MetaPhlAn 4 outputs may include an `UNCLASSIFIED` percentage. By default, LEVAiM keeps it.
+
+```{r eval=FALSE}
+taxa <- read_metaphlan(
+  "some_merged_file.tsv",
+  input_type = "merged",
+  include_unclassified = TRUE
+)
+```
+
+To drop it:
+
+```{r eval=FALSE}
+taxa <- read_metaphlan(
+  "some_merged_file.tsv",
+  input_type = "merged",
+  include_unclassified = FALSE
+)
+```
+
+# Next step
+
+The next LEVAiM milestone will combine feature tables with sample metadata into a longitudinal dataset object.
