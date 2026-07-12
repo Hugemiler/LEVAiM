@@ -1,0 +1,187 @@
+---
+title: "Specifying an assay-wide feeding trajectory screen"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Specifying an assay-wide feeding trajectory screen}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Objective
+
+The biological question is deliberately specific:
+
+> Which taxonomic features show trajectories that differ by feeding state over
+> infancy?
+
+LEVAiM separates that question into two explicit layers. First, derive
+history-aware metadata from a time-varying exposure when the question is about
+feeding history. Second, declare model covariates with roles so `model_frame()`
+can validate how those columns behave within subjects.
+
+# Prepare the BackhedF 2015 example
+
+```{r load-example}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+metadata$feeding_state <- factor(metadata$feeding_state)
+metadata$anno_uncertain <- factor(metadata$anno_uncertain)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+```
+
+# Derive feeding-history features
+
+`feeding_state` is time-varying. Modeling it directly asks about the current
+observed state at each sample. If the question is about earlier feeding
+history, derive subject-level features first.
+
+```{r derive-feeding}
+ds_history <- derive_time_varying_features(
+  ds,
+  exposure = "feeding_state",
+  summaries = list(
+    feeding_4mo = exposure_window(3, 5, method = "modal"),
+    feeding_6mo = exposure_window(5, 7, method = "modal"),
+    ever_exclusive_breastfed = exposure_ever("ExclBreastFed"),
+    feeding_last_observed = exposure_last_observed(),
+    feeding_transition = exposure_transition()
+  )
+)
+
+exposure_derivations(ds_history)
+```
+
+# Define the assay-wide hypothesis
+
+The response will rotate across every taxonomic feature in the assay. We do not
+preselect bifidobacteria, Bacteroides, or any other expected colonizer. The
+known biology enters after the screen, when we interpret the result table.
+
+```{r response-universe}
+assay <- "taxa"
+all_features <- colnames(taxa)
+
+length(all_features)
+head(all_features)
+```
+
+# Encode the reusable model pieces
+
+The per-feature wrapper builds one `model_spec()` per feature internally. The
+stable pieces are subject, time, covariates, trajectory design, and controls. A
+current-state screen and a history-derived screen are different biological
+questions, so they use different covariates.
+
+```{r specification}
+subject <- subject_var("subject")
+time <- time_var("ageMonths")
+
+current_feeding_covariates <- list(
+  group_effect("feeding_state", role = "time_varying"),
+  group_effect("anno_uncertain")
+)
+
+history_feeding_covariates <- list(
+  group_effect("feeding_4mo", role = "derived_exposure"),
+  group_effect("ever_exclusive_breastfed", role = "derived_exposure"),
+  group_effect("feeding_transition", role = "derived_exposure")
+)
+
+current_feeding_design <- varying_trajectory("feeding_state")
+history_feeding_design <- varying_trajectory("feeding_4mo")
+
+control <- trajectory_control(
+  engine = "spline",
+  transform = "log1p",
+  na_action = "explicit",
+  missing_level = "Unknown",
+  sparse_min_n = 5
+)
+```
+
+# Declare the trajectory contrast
+
+The key move is `varying_trajectory("feeding_state")`: we are asking for
+feeding-state-specific time curves, not just a single average curve with a
+feeding covariate tacked on.
+
+```{r trajectory-design}
+prototype_spec <- model_spec(
+  response = assay_feature(assay, all_features[[1]]),
+  subject = subject,
+  time = time,
+  covariates = history_feeding_covariates
+)
+
+shared_traj <- trajectory(prototype_spec, design = naive_trajectory())
+feeding_traj <- trajectory(prototype_spec, design = history_feeding_design)
+
+shared_traj
+feeding_traj
+```
+
+# Build the model frame
+
+Missing feeding annotations are kept as an explicit level by default. Sparse
+levels are collapsed before model fitting. That choice is intentional: uncertain
+metadata are part of real infant cohorts, not a reason to throw away otherwise
+informative longitudinal samples.
+
+```{r model-frame}
+prototype_mf <- model_frame(
+  ds_history,
+  feeding_traj,
+  control = control
+)
+
+prototype_mf
+prototype_mf$preprocessing$covariate_roles
+```
+
+# Continue
+
+Use `vignette("feature-testing", package = "LEVAiM")` to apply this model
+template across every taxonomic feature.

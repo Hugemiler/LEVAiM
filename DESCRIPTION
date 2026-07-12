@@ -21,11 +21,14 @@ Suggests:
     knitr,
     rmarkdown,
     testthat (>= 3.0.0)
+Enhances:
+    brms
 Config/testthat/edition: 3
 Imports: 
     cli,
     data.table,
-    mgcv
+    mgcv,
+    splines
 Config/roxygen2/version: 8.0.0
 VignetteBuilder: knitr
 RoxygenNote: 7.3.3

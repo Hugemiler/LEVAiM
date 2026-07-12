@@ -1,0 +1,120 @@
+---
+title: "Gaussian-process follow-up for screened trajectories"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Gaussian-process follow-up for screened trajectories}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Overview
+
+The Gaussian-process backend is a follow-up option for features nominated by
+the all-feature screen. It uses the same parse, specification, model-frame, fit,
+and summary workflow as spline models. The difference is the model engine:
+`trajectory_control(engine = "gp")`.
+
+Fitted GP models require `brms` and a working Stan backend. The fitting chunks
+below are not evaluated during vignette builds.
+
+# Prepare example data
+
+```{r load-example}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+```
+
+# Declare a GP model frame for a screened feature
+
+```{r gp-frame, eval = FALSE}
+ranked_features <- feature_tests$table[
+  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
+]
+feature <- ranked_features$feature[ranked_features$status == "ok"][[1]]
+
+spec <- model_spec(
+  response = assay_feature("taxa", feature),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths")
+)
+
+gp_mf <- model_frame(
+  ds,
+  trajectory(spec),
+  control = trajectory_control(
+    engine = "gp",
+    gp_kernel = "matern32",
+    transform = "log1p",
+    na_action = "explicit",
+    sparse_min_n = 5,
+    chains = 4,
+    iter = 2000,
+    cores = 4,
+    seed = 1
+  )
+)
+
+gp_mf
+```
+
+# Fit and summarize
+
+```{r gp-fit, eval = FALSE}
+gp_fit <- fit_trajectory(gp_mf)
+
+trajectory_results(gp_fit)
+trajectory_effects(gp_fit)
+```
+
+# Kernel options
+
+The starting GP kernels are:
+
+```{r gp-kernels, eval = FALSE}
+trajectory_control(engine = "gp", gp_kernel = "rbf")
+trajectory_control(engine = "gp", gp_kernel = "matern32")
+```

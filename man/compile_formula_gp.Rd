@@ -4,10 +4,12 @@
 \alias{compile_formula_gp}
 \title{Compile a GP formula}
 \usage{
-compile_formula_gp(traj)
+compile_formula_gp(traj, kernel = "matern32")
 }
 \arguments{
 \item{traj}{A `levaim_trajectory` object.}
+
+\item{kernel}{GP kernel. One of `"rbf"` or `"matern32"`.}
 }
 \value{
 A formula.

@@ -66,15 +66,27 @@ time_var <- function(column) {
 #'
 #' @param column Metadata column encoding a categorical/grouping effect.
 #' @param reference Optional reference level.
+#' @param role Covariate role. `"auto"` infers the role from the model frame;
+#'   `"subject_static"` requires one value per subject; `"time_varying"` allows
+#'   values to change within subject; `"sample_level"` marks sample-specific
+#'   annotations; `"derived_exposure"` marks columns derived from a longitudinal
+#'   exposure history.
 #'
 #' @return A LEVAiM covariate object.
 #' @export
-group_effect <- function(column, reference = NULL) {
+group_effect <- function(
+    column,
+    reference = NULL,
+    role = c("auto", "subject_static", "time_varying", "sample_level", "derived_exposure")
+) {
+  role <- match.arg(role)
+
   structure(
     list(
       column = column,
       reference = reference,
-      type = "group"
+      type = "group",
+      role = role
     ),
     class = c("levaim_group_effect", "levaim_covariate")
   )
@@ -220,7 +232,8 @@ print.levaim_model_spec <- function(x, ...) {
     cli::cli_text("No covariates declared.")
   } else {
     for (cov in x$covariates) {
-      cli::cli_text("- {.field {cov$column}} [{cov$type}]")
+      role <- cov$role %||% "auto"
+      cli::cli_text("- {.field {cov$column}} [{cov$type}; role={role}]")
     }
   }
 

@@ -1,0 +1,229 @@
+---
+title: "Assay-wide discovery of feeding-associated trajectories"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Assay-wide discovery of feeding-associated trajectories}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Overview
+
+This vignette is the main discovery step. We fit the same feeding-stratified
+trajectory model to every taxonomic feature, then inspect the result table for
+both expected early-colonizer signals and unexpected organisms that deserve
+follow-up.
+
+# Prepare example data
+
+```{r load-example}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+metadata$feeding_state <- factor(metadata$feeding_state)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+
+ds_history <- derive_time_varying_features(
+  ds,
+  exposure = "feeding_state",
+  summaries = list(
+    feeding_4mo = exposure_window(3, 5, method = "modal"),
+    ever_exclusive_breastfed = exposure_ever("ExclBreastFed"),
+    feeding_transition = exposure_transition()
+  )
+)
+```
+
+# Test the full assay
+
+Do not preselect bugs. The feature universe is the full taxonomic profile.
+
+```{r select-features}
+all_features <- colnames(taxa)
+length(all_features)
+```
+
+# Screen current observed feeding state
+
+`test_assay_features()` keeps the response as a single feature and repeats the
+same specification across the selected assay columns.
+
+This first screen asks whether trajectories differ by the feeding state observed
+at each sample. That is a legitimate current-state question. It is not the same
+as asking whether early feeding history predicts later trajectories.
+
+The full screen is intentionally not evaluated during vignette builds because it
+can fit thousands of models.
+
+```{r current-feeding-screen, eval = FALSE}
+current_feeding_tests <- test_assay_features(
+  ds,
+  assay = "taxa",
+  features = all_features,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(group_effect("feeding_state", role = "time_varying")),
+  design = varying_trajectory("feeding_state"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  )
+)
+
+current_feeding_tests$table
+```
+
+# Screen early feeding history
+
+This second screen asks a different question: whether a subject-level derived
+feeding-history feature, such as feeding around 4 months, modifies the
+trajectory.
+
+```{r early-feeding-screen, eval = FALSE}
+early_feeding_tests <- test_assay_features(
+  ds_history,
+  assay = "taxa",
+  features = all_features,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure"),
+    group_effect("feeding_transition", role = "derived_exposure")
+  ),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  )
+)
+
+early_feeding_tests$table
+```
+
+# Rank the screen
+
+After fitting, ranking happens in the result table. This is where known biology
+and surprise findings enter the analysis.
+
+```{r rank-results, eval = FALSE}
+ranked_features <- current_feeding_tests$table[
+  order(current_feeding_tests$table$p_adjust, current_feeding_tests$table$p_value),
+]
+
+head(ranked_features, 20)
+```
+
+# Label expected and unexpected signals
+
+Known infant gut colonizers are useful landmarks, but they are not the only
+possible discoveries. This annotation is deliberately post hoc: it labels the
+screen, it does not define the screen.
+
+```{r label-results, eval = FALSE}
+known_colonizer_pattern <- paste(
+  c(
+    "Bifidobacterium",
+    "Bacteroides",
+    "Phocaeicola",
+    "Escherichia",
+    "Enterococcus",
+    "Streptococcus",
+    "Veillonella",
+    "Lactobacillus"
+  ),
+  collapse = "|"
+)
+
+ranked_features$colonizer_label <- ifelse(
+  grepl(known_colonizer_pattern, ranked_features$feature),
+  "known_early_colonizer",
+  "unexpected_signal"
+)
+
+ranked_features[
+  ranked_features$status == "ok" & is.finite(ranked_features$p_adjust),
+  c("feature", "p_value", "p_adjust", "test_term", "colonizer_label")
+][1:20, ]
+```
+
+# Retain fits for downstream analysis
+
+When trajectory comparisons are needed, retain fitted objects from the same
+per-feature operation.
+
+```{r retain-fits, eval = FALSE}
+follow_up_features <- head(ranked_features$feature[ranked_features$status == "ok"], 8)
+
+feature_tests_with_fits <- test_assay_features(
+  ds,
+  assay = "taxa",
+  features = follow_up_features,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(group_effect("feeding_state", role = "time_varying")),
+  design = varying_trajectory("feeding_state"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  ),
+  keep_fits = TRUE
+)
+
+names(feature_tests_with_fits$fits)
+```
+
+# Continue
+
+Use `vignette("trajectory-analysis", package = "LEVAiM")` to compare retained
+feature trajectories and generate distance matrices.

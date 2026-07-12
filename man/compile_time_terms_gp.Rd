@@ -4,7 +4,7 @@
 \alias{compile_time_terms_gp}
 \title{Compile time trajectory terms for GP/brms models}
 \usage{
-compile_time_terms_gp(time_col, design)
+compile_time_terms_gp(time_col, design, kernel = "matern32")
 }
 \description{
 Compile time trajectory terms for GP/brms models

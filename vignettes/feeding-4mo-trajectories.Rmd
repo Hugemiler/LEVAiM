@@ -1,0 +1,412 @@
+---
+title: "Feeding around 4 months and infant gut trajectories"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Feeding around 4 months and infant gut trajectories}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Objective
+
+This vignette asks a sharper question than "does the current feeding annotation
+matter?"
+
+> Are taxonomic trajectories associated with the feeding state recorded around
+> 4 months of age?
+
+The exposure is a derived subject-level feature: `feeding_4mo`, defined as the
+modal `feeding_state` observed between 3 and 5 months. The response is still
+feature-by-feature taxonomic abundance. The screen is not restricted to
+favorite organisms. Hallmark early gut colonizers are used as interpretive
+landmarks after the screen has run.
+
+# Prepare the example data
+
+```{r load-example}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+metadata$feeding_state <- factor(metadata$feeding_state)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+```
+
+# Derive feeding state around 4 months
+
+`feeding_state` varies over time. For this question, using the raw column
+directly would ask about the feeding state at each sample. Instead, derive the
+history variable first, then model trajectories as a function of that derived
+state.
+
+```{r derive-feeding-4mo}
+ds_4mo <- derive_time_varying_features(
+  ds,
+  exposure = "feeding_state",
+  summaries = list(
+    feeding_4mo = exposure_window(3, 5, method = "modal"),
+    ever_exclusive_breastfed = exposure_ever("ExclBreastFed"),
+    feeding_transition = exposure_transition()
+  )
+)
+
+exposure_derivations(ds_4mo)
+```
+
+The resulting analysis strata are not balanced. That is part of the biological
+and epidemiologic setting, not a nuisance to hide.
+
+```{r feeding-4mo-distribution}
+table(ds_4mo$metadata$feeding_4mo, useNA = "ifany")
+
+subject_feeding <- unique(ds_4mo$metadata[, c("subject", "feeding_4mo")])
+table(subject_feeding$feeding_4mo, useNA = "ifany")
+```
+
+In the completed run for this vignette, `feeding_4mo` was observed as
+exclusive breastfeeding for 62 subjects, mixed feeding for 17 subjects, and
+exclusive formula feeding for 10 subjects; 11 subjects lacked an observed
+feeding state in the 3-to-5 month window. This is the window-centered exposure
+needed for the 4-month visit, and it is much better populated than the earlier
+2-to-4 month derivation.
+
+# Screen the assay
+
+The screen is intentionally assay-wide. For estimability and runtime, the
+executed vignette run used taxa present in at least 5% of samples; this is a
+prevalence filter, not a biological preselection. To fit every column in the
+assay, replace `screen_features` with `all_features`.
+
+```{r screen-features}
+all_features <- colnames(taxa)
+prevalence <- colMeans(taxa > 0, na.rm = TRUE)
+screen_features <- names(prevalence[prevalence >= 0.05])
+
+length(all_features)
+length(screen_features)
+```
+
+The full screen is not evaluated during package vignette builds because it fits
+one model per feature.
+
+```{r feeding-4mo-screen, eval = FALSE}
+feeding_4mo_tests <- test_assay_features(
+  ds_4mo,
+  assay = "taxa",
+  features = screen_features,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure")
+  ),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  ),
+  keep_fits = FALSE,
+  error_action = "continue"
+)
+
+feeding_4mo_tests$table
+```
+
+# What the screen found
+
+The completed 5%-prevalence screen fit 220 taxonomic features. All 220 fits
+completed. The signal was broad:
+
+```{r observed-fdr-summary}
+observed_fdr_summary <- data.frame(
+  threshold = c("q < 0.10", "q < 0.05", "q < 0.01"),
+  significant_features = c(194, 181, 147),
+  screened_features = 220
+)
+
+observed_fdr_summary
+```
+
+The strongest smooth terms were spread across the derived feeding groups:
+
+```{r observed-term-summary}
+observed_term_summary <- data.frame(
+  term = c(
+    "s(ageMonths):feeding_4moExclBreastFed",
+    "s(ageMonths):feeding_4moExclFormulaFed",
+    "s(ageMonths):feeding_4moMixed",
+    "s(ageMonths):feeding_4moUnknown"
+  ),
+  significant_features_q05 = c(115, 20, 36, 10)
+)
+
+observed_term_summary
+```
+
+This is not a tidy result in which only the obvious infant organisms light up.
+That is the point of the wrapper. The screen is allowed to find broad
+maturation structure, missingness-linked structure, and unexpected taxa.
+
+# Hallmark early colonizers enter after ranking
+
+The screen itself does not preselect taxa. After fitting, label familiar infant
+gut colonizers so the result table can be read biologically.
+
+```{r posthoc-labeling, eval = FALSE}
+known_colonizer_pattern <- paste(
+  c(
+    "Bifidobacterium",
+    "Bacteroides",
+    "Phocaeicola",
+    "Escherichia",
+    "Enterococcus",
+    "Streptococcus",
+    "Veillonella",
+    "Lactobacillus",
+    "Akkermansia"
+  ),
+  collapse = "|"
+)
+
+ranked_features <- feeding_4mo_tests$table[
+  order(feeding_4mo_tests$table$p_adjust, feeding_4mo_tests$table$p_value),
+]
+
+ranked_features$colonizer_label <- ifelse(
+  grepl(known_colonizer_pattern, ranked_features$feature),
+  "known_landmark",
+  "unexpected_or_less_canonical"
+)
+
+table(
+  ranked_features$colonizer_label[
+    ranked_features$status == "ok" & ranked_features$p_adjust < 0.05
+  ]
+)
+```
+
+In the completed run, 39 significant rows matched the hallmark-colonizer label
+and 142 significant rows did not. That means the expected organisms are present,
+but they are not the whole story.
+
+The leading results included familiar infant-associated taxa and organisms more
+suggestive of broader gut maturation:
+
+```{r observed-top-hits}
+observed_top_hits <- data.frame(
+  feature = c(
+    "Roseburia_faecis",
+    "Bacteroides_uniformis",
+    "Eubacterium_rectale",
+    "Faecalibacterium_prausnitzii",
+    "Bacteroides_ovatus",
+    "Blautia_wexlerae",
+    "Clostridium_sp_AF34_10BH",
+    "Lachnospira_eligens",
+    "Dialister_invisus",
+    "Ruminococcus_bromii",
+    "Fusicatenibacter_saccharivorans",
+    "Anaerostipes_hadrus",
+    "Bifidobacterium_longum"
+  ),
+  leading_term = rep("ExclBreastFed", 13),
+  q_value = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+  deviance_explained = c(
+    0.226,
+    0.527,
+    0.282,
+    0.446,
+    0.484,
+    0.393,
+    0.167,
+    0.228,
+    0.183,
+    0.238,
+    0.289,
+    0.483,
+    0.411
+  )
+)
+
+observed_top_hits
+```
+
+`Bacteroides_uniformis`, `Bacteroides_ovatus`, and
+`Bifidobacterium_longum` are reassuring landmarks. But the top of the table is
+also rich in anaerobes and short-chain-fatty-acid-associated organisms. The
+working biological reading is that feeding state around 4 months is associated
+with the tempo and shape of community maturation, not merely with the presence
+or absence of one iconic infant taxon.
+
+# Retain fits for trajectory comparisons
+
+Once the screen has ranked features, refit a small follow-up set with retained
+fits. This is the bridge from "which features are significant?" to "which
+trajectories look coordinated?"
+
+```{r retained-fits, eval = FALSE}
+follow_up_features <- head(
+  ranked_features$feature[ranked_features$status == "ok"],
+  8
+)
+
+feeding_4mo_followup <- test_assay_features(
+  ds_4mo,
+  assay = "taxa",
+  features = follow_up_features,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure")
+  ),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  ),
+  keep_fits = TRUE,
+  error_action = "continue"
+)
+```
+
+The retained follow-up run used the first eight ranked taxa. The fitted
+features were:
+
+```{r observed-followup-features}
+observed_followup_features <- data.frame(
+  feature = c(
+    "Roseburia_faecis",
+    "Bacteroides_uniformis",
+    "Eubacterium_rectale",
+    "Faecalibacterium_prausnitzii",
+    "Bacteroides_ovatus",
+    "Blautia_wexlerae",
+    "Clostridium_sp_AF34_10BH",
+    "Lachnospira_eligens"
+  ),
+  leading_term = rep("ExclBreastFed", 8),
+  deviance_explained = c(0.226, 0.527, 0.282, 0.446, 0.484, 0.393, 0.167, 0.228)
+)
+
+observed_followup_features
+```
+
+# Compare trajectories
+
+`compare_trajectories()` returns the analysis layer biologists and
+biostatisticians will ask for: a long data frame. Each row is a feature pair,
+a metadata stratum, a time window, a metric, and its descriptive evidence.
+
+```{r compare-trajectories, eval = FALSE}
+trajectory_comparison <- compare_trajectories(
+  feeding_4mo_followup,
+  n = 30,
+  metrics = c(
+    "fitted_correlation",
+    "fitted_distance",
+    "derivative_correlation"
+  )
+)
+
+head(trajectory_comparison)
+```
+
+In the completed follow-up, the comparison table had 336 rows across the
+exclusive-breastfed, exclusive-formula-fed, mixed, and unknown `feeding_4mo`
+groups. Fitted correlations were often strongly positive, but not uniformly
+so. The smallest fitted distances occurred for feature pairs with nearly
+identical fitted shapes inside a feeding-history stratum, such as
+`Bacteroides_uniformis` with `Bacteroides_ovatus` in the unknown stratum and
+`Bacteroides_ovatus` with `Blautia_wexlerae` in the formula-fed stratum. The
+first-eight follow-up set therefore reads as a coordinated maturation block
+rather than a collection of unrelated discoveries.
+
+The p-values in this table are deliberately labeled as descriptive. The fitted
+grid points are not independent biological observations.
+
+# Generate a distance matrix
+
+Heatmap inputs are derived from the long comparison table. This keeps the
+statistical evidence table as the source of truth and lets plotting code choose
+which group and time window to visualize.
+
+```{r distance-matrix, eval = FALSE}
+feeding_4mo_distance <- trajectory_distance_matrix(
+  trajectory_comparison
+)
+
+feeding_4mo_distance
+```
+
+The completed run produced an 8-by-8 fitted-distance matrix for the first
+available fitted-distance stratum, the exclusive-breastfed trajectory group.
+The matrix is heatmap-ready, but its biological reading still depends on the
+chosen stratum and the stability of that stratum. The long table remains the
+source of truth when a specific feeding group or time window is required.
+
+# Interpretation
+
+This vignette supports three conclusions.
+
+First, deriving `feeding_4mo` changes the question in a useful way. The model is
+no longer asking only whether the sample's current feeding state matches the
+sample's current abundance. It asks whether early feeding history stratifies the
+trajectory.
+
+Second, the result is stronger and broader than a hallmark-only story.
+Canonical infant-associated taxa appear, but the strongest results also include
+adult-like anaerobes and community-maturation organisms. That is biologically
+plausible: feeding practice around 4 months can mark a developmental regime,
+not just a single substrate at a single visit.
+
+Third, the corrected 3-to-5 month window materially improves exposure support.
+Unknown `feeding_4mo` is no longer the dominant stratum, although exclusive
+formula feeding remains smaller than exclusive breastfeeding. Those levels
+should remain in the model frame so samples are not silently discarded, but
+formula-specific claims should still be treated as follow-up hypotheses.

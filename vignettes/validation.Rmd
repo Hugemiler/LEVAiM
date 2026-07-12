@@ -1,0 +1,136 @@
+---
+title: "Validating a screen-derived trajectory model"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Validating a screen-derived trajectory model}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Overview
+
+Once the all-feature screen nominates follow-up targets, validation asks whether
+a fitted trajectory behaves sensibly when whole subjects are held out. Repeated
+samples from the same subject must never be split across train and test sets.
+This vignette covers:
+
+1. grouped fold generation;
+2. repeated grouped cross-validation;
+3. aggregate validation summaries;
+4. held-out prediction tables.
+
+# Prepare example data and model frame
+
+Run the all-feature screen first, then set `feature` from the ranked result
+table. The chunk below is not evaluated during vignette builds because it
+depends on that completed screen.
+
+```{r model-frame, eval = FALSE}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+
+ranked_features <- feature_tests$table[
+  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
+]
+feature <- ranked_features$feature[ranked_features$status == "ok"][[1]]
+
+spec <- model_spec(
+  response = assay_feature("taxa", feature),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths")
+)
+
+mf <- model_frame(
+  ds,
+  trajectory(spec),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6
+  )
+)
+```
+
+# Inspect grouped folds
+
+```{r folds, eval = FALSE}
+folds <- grouped_cv_folds(
+  mf$data,
+  group = "subject",
+  v = 3,
+  seed = 1
+)
+
+str(folds, max.level = 1)
+```
+
+# Run grouped cross-validation
+
+```{r cross-validation, eval = FALSE}
+cv <- cross_validate_trajectory(
+  mf,
+  v = 3,
+  group = "subject",
+  repeats = 2,
+  keep_predictions = TRUE,
+  seed = 1
+)
+
+cv
+```
+
+# Summarize validation performance
+
+```{r validation-output, eval = FALSE}
+cv_summary(cv)
+head(cv_predictions(cv))
+```
+
+# Continue
+
+Use `vignette("feature-testing", package = "LEVAiM")` to apply the same model
+operation across multiple assay features.

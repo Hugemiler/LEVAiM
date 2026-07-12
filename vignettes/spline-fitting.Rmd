@@ -1,0 +1,148 @@
+---
+title: "Following up a screen-derived trajectory hit"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Following up a screen-derived trajectory hit}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Objective
+
+Here we fit an inspectable trajectory for a feature nominated by the all-assay
+screen. The rule is important: first test every feature with the wrapper, then
+choose follow-up targets from the result table. The goal is not to bless a
+favorite organism. The goal is to understand the fitted trajectory behind a
+screen-derived signal.
+
+# Prepare the example data
+
+```{r load-example}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+metadata$feeding_state <- factor(metadata$feeding_state)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+```
+
+# Choose a follow-up feature from the screen
+
+The full screen is shown in `vignette("feature-testing", package = "LEVAiM")`.
+After running it, choose a feature from the ranked result table.
+
+```{r choose-hit, eval = FALSE}
+ranked_features <- feature_tests$table[
+  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
+]
+
+feature <- ranked_features$feature[ranked_features$status == "ok"][[1]]
+feature
+```
+
+# Fit a feeding-stratified spline
+
+```{r fit-spline, eval = FALSE}
+
+spec <- model_spec(
+  response = assay_feature("taxa", feature),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths"),
+  covariates = list(group_effect("feeding_state"))
+)
+
+mf <- model_frame(
+  ds,
+  trajectory(spec, design = varying_trajectory("feeding_state")),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_basis = "gam",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  )
+)
+
+fit <- fit_trajectory(mf)
+fit
+```
+
+# Summarize the fitted model
+
+`trajectory_results()` extracts the fitted model evidence without forcing users
+to parse a backend-specific object first.
+
+```{r results, eval = FALSE}
+results <- trajectory_results(fit)
+results
+```
+
+# Inspect the fitted trajectory
+
+The fitted effects table is the basic scientific object: age, feeding state,
+fitted abundance, and uncertainty.
+
+```{r effects, fig.height = 4, eval = FALSE}
+effects <- trajectory_effects(fit, n = 20)
+head(effects)
+
+plot_trajectory_effects(fit, effects = effects)
+```
+
+# Estimate local change
+
+Derivatives turn the fitted curve into a rate-of-change table. LEVAiM reports
+the rate; it does not invent a peak, valley, or phase label unless the evidence
+supports one downstream.
+
+```{r derivatives, eval = FALSE}
+derivatives <- trajectory_derivatives(fit, n = 20)
+head(derivatives)
+```
+
+# Continue
+
+Use `vignette("validation", package = "LEVAiM")` to ask whether the trajectory
+model behaves sensibly under subject-aware held-out validation.

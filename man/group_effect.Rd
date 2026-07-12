@@ -4,12 +4,22 @@
 \alias{group_effect}
 \title{Define a categorical model effect}
 \usage{
-group_effect(column, reference = NULL)
+group_effect(
+  column,
+  reference = NULL,
+  role = c("auto", "subject_static", "time_varying", "sample_level", "derived_exposure")
+)
 }
 \arguments{
 \item{column}{Metadata column encoding a categorical/grouping effect.}
 
 \item{reference}{Optional reference level.}
+
+\item{role}{Covariate role. `"auto"` infers the role from the model frame;
+`"subject_static"` requires one value per subject; `"time_varying"` allows
+values to change within subject; `"sample_level"` marks sample-specific
+annotations; `"derived_exposure"` marks columns derived from a longitudinal
+exposure history.}
 }
 \value{
 A LEVAiM covariate object.

@@ -1,8 +1,8 @@
 ---
-title: "BackhedF 2015 taxonomic trajectories"
+title: "BackhedF 2015 data loading for assay-wide trajectory discovery"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{BackhedF 2015 taxonomic trajectories}
+  %\VignetteIndexEntry{BackhedF 2015 data loading for assay-wide trajectory discovery}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -18,9 +18,20 @@ knitr::opts_chunk$set(
 library(LEVAiM)
 ```
 
-# Input files
+# Objective
 
-This vignette uses the BackhedF_2015 files in `examples/input_files`:
+We start with a concrete question: can we organize a longitudinal infant gut
+microbiome profile so that every taxonomic feature can be tested for a
+feeding-associated trajectory?
+
+This is not a generic import exercise. It is the first gate in the analysis.
+If sample identifiers, metadata, and taxonomic profiles are not aligned exactly,
+every downstream trajectory is suspect.
+
+# Locate the real input files
+
+The package includes a metadata table and a merged MetaPhlAn profile from the
+BackhedF 2015 example files.
 
 ```{r paths}
 input_dir <- file.path("..", "examples", "input_files")
@@ -38,11 +49,12 @@ file.exists(metadata_path)
 file.exists(taxa_path)
 ```
 
-# Load metadata and taxa
+# Read metadata and taxonomic profiles
 
-The metadata uses bare run accessions in `sample`. The merged MetaPhlAn table
-uses the same accessions with a profile suffix, which `read_metaphlan()` removes
-when `clean_sample_names = TRUE`.
+The metadata table carries the longitudinal design: sample, subject, age, and
+feeding state. The merged MetaPhlAn table carries microbial relative abundance.
+`read_metaphlan()` cleans the profile suffix so sample identifiers can be joined
+directly.
 
 ```{r load-data}
 metadata <- read.csv(
@@ -59,44 +71,83 @@ taxa <- read_metaphlan(
   clean_sample_names = TRUE
 )
 
+names(metadata)
 dim(metadata)
 dim(taxa)
 head(metadata)
-taxa[1:5, 1:3]
 ```
 
-# Align samples
+# Force sample alignment
 
-The taxonomic profile contains additional runs that are not present in this
-metadata file. For this first pipeline example, keep the shared samples and order
-the assay table to match the metadata exactly.
+This is the moment where the assay and metadata become one longitudinal
+experiment. We keep only shared samples and impose identical row order.
 
 ```{r align-samples}
 shared_samples <- intersect(metadata$sample, rownames(taxa))
 
-length(shared_samples)
-length(setdiff(metadata$sample, rownames(taxa)))
-length(setdiff(rownames(taxa), metadata$sample))
+alignment_audit <- data.frame(
+  metadata_samples = length(metadata$sample),
+  taxonomic_samples = nrow(taxa),
+  shared_samples = length(shared_samples),
+  metadata_only = length(setdiff(metadata$sample, rownames(taxa))),
+  taxa_only = length(setdiff(rownames(taxa), metadata$sample))
+)
+alignment_audit
 
 metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
 rownames(metadata) <- metadata$sample
-
 taxa <- taxa[rownames(metadata), , drop = FALSE]
 
 identical(rownames(taxa), rownames(metadata))
 ```
 
-# Build a longitudinal dataset
+# Audit the full feature universe
 
-The Backhed metadata already contains a subject identifier and infant age in
-months. Feeding state is useful metadata, but it is missing for some later
-samples, so this first trajectory uses a shared time smooth.
+Do not choose winners at import time. First inspect the full assay: how many
+features are present, how sparse are they, and whether familiar early
+colonizers are represented. Those familiar taxa are interpretation landmarks,
+not filters.
+
+```{r feature-universe}
+feature_summary <- data.frame(
+  feature = colnames(taxa),
+  prevalence = colMeans(taxa > 0),
+  mean_relative_abundance = colMeans(taxa),
+  row.names = NULL
+)
+
+head(feature_summary[order(feature_summary$mean_relative_abundance, decreasing = TRUE), ])
+
+colonizer_patterns <- c(
+  "Bifidobacterium longum" = "s__Bifidobacterium_longum$",
+  "Bifidobacterium breve" = "s__Bifidobacterium_breve$",
+  "Bacteroides fragilis" = "s__Bacteroides_fragilis$",
+  "Escherichia coli" = "s__Escherichia_coli$",
+  "Enterococcus faecalis" = "s__Enterococcus_faecalis$",
+  "Veillonella parvula" = "s__Veillonella_parvula$"
+)
+
+colonizer_features <- vapply(
+  colonizer_patterns,
+  function(pattern) grep(pattern, colnames(taxa), value = TRUE)[1],
+  character(1)
+)
+colonizer_features <- colonizer_features[!is.na(colonizer_features)]
+
+data.frame(
+  colonizer = names(colonizer_features),
+  mean_relative_abundance = colMeans(taxa[, colonizer_features, drop = FALSE]),
+  row.names = NULL
+)
+```
+
+# Build the longitudinal object
+
+`LongitudinalDataset()` is the object we carry into every downstream vignette.
 
 ```{r dataset}
 metadata$subject <- factor(metadata$subject)
-metadata$feeding_state <- factor(
-  ifelse(is.na(metadata$feeding_state), "Unknown", metadata$feeding_state)
-)
+metadata$feeding_state <- factor(metadata$feeding_state)
 
 ds <- LongitudinalDataset(
   assays = list(taxa = taxa),
@@ -108,41 +159,11 @@ ds <- LongitudinalDataset(
 ds
 ```
 
-# Define and fit one trajectory
+# Continue
 
-Choose the most abundant species in the aligned table and model its shared
-trajectory over infant age.
+The next step is not fitting. It is declaring the biological question in a model
+specification:
 
-```{r fit-trajectory}
-feature <- names(sort(colMeans(taxa), decreasing = TRUE))[1]
-feature
-
-spec <- model_spec(
-  response = assay_feature("taxa", feature),
-  subject = subject_var("subject"),
-  time = time_var("ageMonths")
-)
-
-traj <- trajectory(spec)
-
-mf <- model_frame(
-  ds,
-  traj,
-  control = trajectory_control(
-    engine = "spline",
-    transform = "log1p",
-    spline_k = 6
-  )
-)
-
-mf
-
-fit <- fit_trajectory(mf)
-results <- trajectory_results(fit)
-
-results
-```
-
-```{r plot-fit, fig.height = 4}
-plot(fit)
+``` r
+vignette("model-specification", package = "LEVAiM")
 ```

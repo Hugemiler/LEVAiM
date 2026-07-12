@@ -1,0 +1,170 @@
+---
+title: "Comparing trajectories after an all-feature screen"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Comparing trajectories after an all-feature screen}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Overview
+
+This vignette starts after the all-feature screen. It covers two outputs:
+
+1. a long trajectory-comparison table from `compare_trajectories()`;
+2. a fitted-trajectory distance matrix from `trajectory_distance_matrix()`.
+
+The correlation p-values in the comparison table are descriptive summaries of
+fitted grid curves. They are labeled as descriptive because fitted grid points
+are not independent biological observations.
+
+# Prepare retained feature fits from the screen
+
+```{r feature-fits}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+
+metadata$subject <- factor(metadata$subject)
+metadata$feeding_state <- factor(metadata$feeding_state)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+
+ds_history <- derive_time_varying_features(
+  ds,
+  exposure = "feeding_state",
+  summaries = list(
+    feeding_4mo = exposure_window(3, 5, method = "modal"),
+    feeding_transition = exposure_transition()
+  )
+)
+```
+
+# Run the all-feature screen
+
+The first pass tests every feature. Then a focused set of hits is refit with
+`keep_fits = TRUE` so trajectories can be compared.
+
+```{r all-feature-screen, eval = FALSE}
+feature_tests <- test_assay_features(
+  ds,
+  assay = "taxa",
+  features = colnames(taxa),
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(group_effect("feeding_state", role = "time_varying")),
+  design = varying_trajectory("feeding_state"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  )
+)
+
+ranked_features <- feature_tests$table[
+  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
+]
+
+follow_up_features <- head(ranked_features$feature[ranked_features$status == "ok"], 8)
+```
+
+# Refit selected screen hits with retained fits
+
+The follow-up set is selected from the screen. It may include familiar early
+colonizers, unexpected taxa, or both.
+
+```{r retained-fits, eval = FALSE}
+feature_tests_with_fits <- test_assay_features(
+  ds,
+  assay = "taxa",
+  features = follow_up_features,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(group_effect("feeding_state", role = "time_varying")),
+  design = varying_trajectory("feeding_state"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  ),
+  keep_fits = TRUE
+)
+```
+
+# Compare trajectories
+
+`compare_trajectories()` returns a long data frame. Each row is a feature pair,
+trajectory group, time window, and metric.
+
+```{r compare, eval = FALSE}
+trajectory_comparison <- compare_trajectories(
+  feature_tests_with_fits,
+  n = 25,
+  metrics = c("fitted_correlation", "fitted_distance", "derivative_correlation")
+)
+
+head(trajectory_comparison)
+```
+
+# Inspect descriptive inference labels
+
+```{r descriptive-labels, eval = FALSE}
+trajectory_comparison[
+  trajectory_comparison$metric == "fitted_correlation",
+  c("feature_1", "feature_2", "group_level", "estimate", "p_value", "q_value",
+    "test_method", "inference_warning")
+]
+```
+
+# Generate a distance matrix
+
+Distance matrices are derived from the long comparison table. They are suitable
+inputs for heatmap code; plotting is intentionally left to downstream workflow
+decisions.
+
+```{r distance-matrix, eval = FALSE}
+trajectory_distance_matrix(trajectory_comparison)
+```

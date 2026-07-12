@@ -8,14 +8,19 @@ trajectory_control(
   engine = c("spline", "gp"),
   family = "gaussian",
   transform = c("identity", "log1p", "log10p"),
-  na_action = c("complete"),
+  na_action = c("explicit", "complete"),
   spline_k = 10L,
+  spline_basis = c("gam", "natural", "cubic"),
   spline_method = c("REML", "ML", "GCV.Cp"),
   gp_kernel = c("matern32", "rbf"),
   chains = 4L,
   iter = 2000L,
   cores = 1L,
-  seed = NULL
+  seed = NULL,
+  sparse_min_n = 2L,
+  sparse_other_level = "Other",
+  missing_level = "Unknown",
+  drop_invariant_covariates = TRUE
 )
 }
 \arguments{
@@ -26,9 +31,14 @@ trajectory_control(
 \item{transform}{Response transformation. One of `"identity"`, `"log1p"`,
 or `"log10p"`.}
 
-\item{na_action}{Missing-data handling. Currently `"complete"`.}
+\item{na_action}{Missing-data handling. `"explicit"` keeps missing
+categorical annotations as `missing_level`; `"complete"` removes rows with
+missing model variables.}
 
 \item{spline_k}{Basis dimension for spline smooths.}
+
+\item{spline_basis}{Spline basis. `"gam"` uses `mgcv::s()`, `"natural"`
+uses `splines::ns()`, and `"cubic"` uses `splines::bs()`.}
 
 \item{spline_method}{Fitting method for `mgcv::gam()`, usually `"REML"` or
 `"ML"`.}
@@ -42,6 +52,17 @@ or `"log10p"`.}
 \item{cores}{Number of cores for GP/brms backend.}
 
 \item{seed}{Optional random seed.}
+
+\item{sparse_min_n}{Minimum count for a categorical annotation level. Levels
+with fewer samples are collapsed to `sparse_other_level`.}
+
+\item{sparse_other_level}{Label used for collapsed sparse categorical levels.}
+
+\item{missing_level}{Label used for missing categorical annotations when
+`na_action = "explicit"`.}
+
+\item{drop_invariant_covariates}{Logical. Whether to remove non-trajectory
+covariates that have fewer than two levels after preprocessing.}
 }
 \value{
 A `levaim_trajectory_control` object.

@@ -18,7 +18,7 @@ trajectory_results <- function(fit) {
   switch(
     fit$engine,
     spline = trajectory_results_spline(fit),
-    gp = cli::cli_abort("GP results are not implemented yet.")
+    gp = trajectory_results_gp(fit)
   )
 }
 
@@ -54,6 +54,51 @@ trajectory_results_spline <- function(fit) {
       parametric_terms = parametric_table,
       smooth_terms = smooth_table,
       backend_summary = gam_summary
+    ),
+    class = "levaim_results"
+  )
+}
+
+
+#' Extract Gaussian process results
+#'
+#' @keywords internal
+trajectory_results_gp <- function(fit) {
+  mf <- fit$model_frame
+  traj <- mf$trajectory
+  spec <- traj$spec
+  design <- traj$design
+
+  response_label <- format_response_label(spec$response)
+  fitted <- as.numeric(stats::fitted(fit$fit, newdata = mf$data)[, "Estimate"])
+  observed <- mf$data$.y
+  residual <- observed - fitted
+  total <- observed - mean(observed)
+  r_sq <- 1 - sum(residual^2) / sum(total^2)
+
+  kernel_table <- data.frame(
+    kernel = mf$control$gp$kernel,
+    brms_covariance = brms_gp_covariance(mf$control$gp$kernel)
+  )
+
+  structure(
+    list(
+      engine = fit$engine,
+      response = response_label,
+      formula = mf$formula,
+      trajectory_type = design$type,
+      trajectory_by = if (design$type == "varying") design$by else NULL,
+      family = mf$control$family,
+      transform = mf$control$transform,
+      n = nrow(mf$data),
+      r_sq = r_sq,
+      deviance_explained = r_sq,
+      parametric_terms = data.frame(
+        term = names(fit$fit$beta),
+        estimate = as.numeric(fit$fit$beta)
+      ),
+      smooth_terms = kernel_table,
+      backend_summary = summary(fit$fit)
     ),
     class = "levaim_results"
   )

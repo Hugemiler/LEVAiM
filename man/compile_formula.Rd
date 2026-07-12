@@ -4,7 +4,13 @@
 \alias{compile_formula}
 \title{Compile a trajectory object into a model formula}
 \usage{
-compile_formula(traj, engine = c("spline", "gp"), spline_k = NULL)
+compile_formula(
+  traj,
+  engine = c("spline", "gp"),
+  spline_k = NULL,
+  spline_basis = "gam",
+  gp_kernel = "matern32"
+)
 }
 \arguments{
 \item{traj}{A `levaim_trajectory` object.}
@@ -12,6 +18,10 @@ compile_formula(traj, engine = c("spline", "gp"), spline_k = NULL)
 \item{engine}{Modeling engine. One of `"spline"` or `"gp"`.}
 
 \item{spline_k}{Optional basis dimension for spline smooths.}
+
+\item{spline_basis}{Spline basis for spline models.}
+
+\item{gp_kernel}{GP kernel for GP models.}
 }
 \value{
 A formula.

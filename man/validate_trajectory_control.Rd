@@ -10,12 +10,17 @@ validate_trajectory_control(
   transform,
   na_action,
   spline_k,
+  spline_basis,
   spline_method,
   gp_kernel,
   chains,
   iter,
   cores,
-  seed
+  seed,
+  sparse_min_n,
+  sparse_other_level,
+  missing_level,
+  drop_invariant_covariates
 )
 }
 \description{

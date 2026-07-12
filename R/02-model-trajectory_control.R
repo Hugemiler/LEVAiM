@@ -11,8 +11,12 @@
 #' @param family Model family. For now, usually `"gaussian"`.
 #' @param transform Response transformation. One of `"identity"`, `"log1p"`,
 #'   or `"log10p"`.
-#' @param na_action Missing-data handling. Currently `"complete"`.
+#' @param na_action Missing-data handling. `"explicit"` keeps missing
+#'   categorical annotations as `missing_level`; `"complete"` removes rows with
+#'   missing model variables.
 #' @param spline_k Basis dimension for spline smooths.
+#' @param spline_basis Spline basis. `"gam"` uses `mgcv::s()`, `"natural"`
+#'   uses `splines::ns()`, and `"cubic"` uses `splines::bs()`.
 #' @param spline_method Fitting method for `mgcv::gam()`, usually `"REML"` or
 #'   `"ML"`.
 #' @param gp_kernel Gaussian process kernel. Placeholder for GP backend.
@@ -20,6 +24,13 @@
 #' @param iter Number of MCMC iterations for GP/brms backend.
 #' @param cores Number of cores for GP/brms backend.
 #' @param seed Optional random seed.
+#' @param sparse_min_n Minimum count for a categorical annotation level. Levels
+#'   with fewer samples are collapsed to `sparse_other_level`.
+#' @param sparse_other_level Label used for collapsed sparse categorical levels.
+#' @param missing_level Label used for missing categorical annotations when
+#'   `na_action = "explicit"`.
+#' @param drop_invariant_covariates Logical. Whether to remove non-trajectory
+#'   covariates that have fewer than two levels after preprocessing.
 #'
 #' @return A `levaim_trajectory_control` object.
 #' @export
@@ -27,18 +38,24 @@ trajectory_control <- function(
     engine = c("spline", "gp"),
     family = "gaussian",
     transform = c("identity", "log1p", "log10p"),
-    na_action = c("complete"),
+    na_action = c("explicit", "complete"),
     spline_k = 10L,
+    spline_basis = c("gam", "natural", "cubic"),
     spline_method = c("REML", "ML", "GCV.Cp"),
     gp_kernel = c("matern32", "rbf"),
     chains = 4L,
     iter = 2000L,
     cores = 1L,
-    seed = NULL
+    seed = NULL,
+    sparse_min_n = 2L,
+    sparse_other_level = "Other",
+    missing_level = "Unknown",
+    drop_invariant_covariates = TRUE
 ) {
   engine <- match.arg(engine)
   transform <- match.arg(transform)
   na_action <- match.arg(na_action)
+  spline_basis <- match.arg(spline_basis)
   spline_method <- match.arg(spline_method)
   gp_kernel <- match.arg(gp_kernel)
 
@@ -48,12 +65,17 @@ trajectory_control <- function(
     transform = transform,
     na_action = na_action,
     spline_k = spline_k,
+    spline_basis = spline_basis,
     spline_method = spline_method,
     gp_kernel = gp_kernel,
     chains = chains,
     iter = iter,
     cores = cores,
-    seed = seed
+    seed = seed,
+    sparse_min_n = sparse_min_n,
+    sparse_other_level = sparse_other_level,
+    missing_level = missing_level,
+    drop_invariant_covariates = drop_invariant_covariates
   )
 
   structure(
@@ -64,6 +86,7 @@ trajectory_control <- function(
       na_action = na_action,
       spline = list(
         k = as.integer(spline_k),
+        basis = spline_basis,
         method = spline_method
       ),
       gp = list(
@@ -72,7 +95,13 @@ trajectory_control <- function(
         iter = as.integer(iter),
         cores = as.integer(cores)
       ),
-      seed = seed
+      seed = seed,
+      annotations = list(
+        sparse_min_n = as.integer(sparse_min_n),
+        sparse_other_level = sparse_other_level,
+        missing_level = missing_level,
+        drop_invariant_covariates = drop_invariant_covariates
+      )
     ),
     class = "levaim_trajectory_control"
   )
@@ -88,12 +117,17 @@ validate_trajectory_control <- function(
     transform,
     na_action,
     spline_k,
+    spline_basis,
     spline_method,
     gp_kernel,
     chains,
     iter,
     cores,
-    seed
+    seed,
+    sparse_min_n,
+    sparse_other_level,
+    missing_level,
+    drop_invariant_covariates
 ) {
   if (!is.character(family) || length(family) != 1L) {
     cli::cli_abort("`family` must be a character scalar.")
@@ -101,6 +135,10 @@ validate_trajectory_control <- function(
 
   if (!is.numeric(spline_k) || length(spline_k) != 1L || spline_k < 3L) {
     cli::cli_abort("`spline_k` must be a numeric scalar >= 3.")
+  }
+
+  if (!is.character(spline_basis) || length(spline_basis) != 1L) {
+    cli::cli_abort("`spline_basis` must be a character scalar.")
   }
 
   if (!is.numeric(chains) || length(chains) != 1L || chains < 1L) {
@@ -117,6 +155,22 @@ validate_trajectory_control <- function(
 
   if (!is.null(seed) && (!is.numeric(seed) || length(seed) != 1L)) {
     cli::cli_abort("`seed` must be `NULL` or a numeric scalar.")
+  }
+
+  if (!is.numeric(sparse_min_n) || length(sparse_min_n) != 1L || sparse_min_n < 1L) {
+    cli::cli_abort("`sparse_min_n` must be a numeric scalar >= 1.")
+  }
+
+  if (!is.character(sparse_other_level) || length(sparse_other_level) != 1L || !nzchar(sparse_other_level)) {
+    cli::cli_abort("`sparse_other_level` must be a non-empty character scalar.")
+  }
+
+  if (!is.character(missing_level) || length(missing_level) != 1L || !nzchar(missing_level)) {
+    cli::cli_abort("`missing_level` must be a non-empty character scalar.")
+  }
+
+  if (!is.logical(drop_invariant_covariates) || length(drop_invariant_covariates) != 1L || is.na(drop_invariant_covariates)) {
+    cli::cli_abort("`drop_invariant_covariates` must be `TRUE` or `FALSE`.")
   }
 
   invisible(TRUE)
@@ -141,6 +195,7 @@ print.levaim_trajectory_control <- function(x, ...) {
   if (x$engine == "spline") {
     cli::cli_h2("Spline controls")
     cli::cli_text("Basis dimension k: {x$spline$k}")
+    cli::cli_text("Basis: {.field {x$spline$basis}}")
     cli::cli_text("Method: {.field {x$spline$method}}")
   }
 
@@ -155,6 +210,12 @@ print.levaim_trajectory_control <- function(x, ...) {
   if (!is.null(x$seed)) {
     cli::cli_text("Seed: {x$seed}")
   }
+
+  cli::cli_h2("Annotation preprocessing")
+  cli::cli_text("Sparse level minimum n: {x$annotations$sparse_min_n}")
+  cli::cli_text("Sparse level label: {.field {x$annotations$sparse_other_level}}")
+  cli::cli_text("Missing level label: {.field {x$annotations$missing_level}}")
+  cli::cli_text("Drop invariant covariates: {x$annotations$drop_invariant_covariates}")
 
   invisible(x)
 }

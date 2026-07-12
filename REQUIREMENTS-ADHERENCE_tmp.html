@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>REQUIREMENTS-ADHERENCE.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> or <div class="page"></div> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="levaim-requirements-adherence-matrix">LEVAiM Requirements Adherence Matrix</h1>
+<p>This document maps the D0.3 longitudinal microbiome modeling requirements to
+current package evidence. It separates implementation progress from testing,
+documentation, and approval so checkpoint claims remain auditable.</p>
+<h2 id="status-scale">Status Scale</h2>
+<ul>
+<li><strong>Not started</strong>: no user-facing implementation exists.</li>
+<li><strong>Prototype</strong>: partial or internal implementation exists, but behavior is not
+stable enough for checkpoint credit.</li>
+<li><strong>Implemented</strong>: user-facing implementation exists through exported functions
+or documented workflows.</li>
+<li><strong>Tested</strong>: automated tests cover the expected behavior.</li>
+<li><strong>Documented</strong>: README, vignette, or manual pages show intended use.</li>
+<li><strong>Approved</strong>: reviewed and accepted by the designated executive-level reviewer.</li>
+</ul>
+<h2 id="current-evidence-inventory">Current Evidence Inventory</h2>
+<ul>
+<li>Package skeleton: <code>DESCRIPTION</code>, <code>NAMESPACE</code>, <code>R/</code>, <code>tests/</code>, <code>vignettes/</code>.</li>
+<li>Data parsing: <code>read_metaphlan()</code>, <code>read_humann()</code>, and
+<code>LongitudinalDataset()</code>.</li>
+<li>Preprocessing workflow: input parsing and alignment vignette in
+<code>vignettes/data-loading.Rmd</code>.</li>
+<li>Full proof-of-concept workflow: <code>vignettes/full-pipeline.Rmd</code> parses bundled
+real input files, aligns samples, builds a longitudinal dataset, fits spline
+trajectory models, computes effects, and runs grouped CV.</li>
+<li>Toy modeling workflow: <code>vignettes/toy-example.Rmd</code> provides a small synthetic
+API walkthrough.</li>
+<li>Spline/GAM fitting: <code>trajectory_control(engine = &quot;spline&quot;)</code>,
+<code>model_frame()</code>, <code>fit_trajectory()</code>, <code>trajectory_results()</code>.</li>
+<li>Sparse/missing annotation handling: <code>model_frame()</code> preprocesses categorical
+annotations consistently across spline and GP model frames, retaining missing
+categorical annotations as an explicit level by default and collapsing sparse
+levels to a configurable <code>&quot;Other&quot;</code> level.</li>
+<li>Per-feature workflow: <code>test_assay_features()</code> fits one model per selected
+assay feature, collates trajectory-level p-values, and applies FDR correction.</li>
+<li>Spline basis controls: <code>trajectory_control(spline_basis = &quot;gam&quot;)</code>,
+<code>trajectory_control(spline_basis = &quot;natural&quot;)</code>, and
+<code>trajectory_control(spline_basis = &quot;cubic&quot;)</code>.</li>
+<li>Grouped validation: <code>grouped_cv_folds()</code> and
+<code>cross_validate_trajectory()</code>.</li>
+<li>Prediction and plotting: <code>predict.levaim_fit()</code> and <code>plot.levaim_fit()</code>.</li>
+<li>Effect summaries and plots: <code>trajectory_effects()</code> and
+<code>plot_trajectory_effects()</code>.</li>
+<li>Serialization: <code>save_levaim_object()</code> and <code>load_levaim_object()</code> round-trip
+recognized LEVAiM objects through RDS files.</li>
+<li>API lifecycle: <code>API-LIFECYCLE.md</code> plus signature and return-class tests in
+<code>tests/testthat/test-api-lifecycle.R</code>.</li>
+<li>Tests: <code>tests/testthat/test-pipeline.R</code> and
+<code>tests/testthat/test-backhed-example-files.R</code>,
+<code>tests/testthat/test-api-lifecycle.R</code>,
+<code>tests/testthat/test-validation-and-effects.R</code>, and
+<code>tests/testthat/test-gp-brms-backend.R</code>.</li>
+<li>Current verification: <code>devtools::test()</code> passes with 143 passing checks and
+one expected skip for the missing-<code>brms</code> branch when <code>brms</code> is installed;
+<code>R CMD check --no-manual</code> passes with one known NOTE for long example file
+names.</li>
+</ul>
+<h2 id="d031-gaussian-processes-mid-development-checkpoint">D0.3.1 Gaussian Processes Mid-Development Checkpoint</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Current status</th>
+<th>Evidence</th>
+<th>Gap before checkpoint credit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.3.1.1</td>
+<td>Package skeleton</td>
+<td>Documented</td>
+<td>Standard R package layout exists.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.1.2</td>
+<td>Data parsing and preprocessing pipeline</td>
+<td>Tested + documented</td>
+<td>MetaPhlAn/HUMAnN parsers, <code>LongitudinalDataset()</code>, sparse/missing annotation preprocessing, input-preparation vignette, full-pipeline vignette, Backhed example-file test.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.1.3</td>
+<td>GP regression with RBF/Matern32 kernels</td>
+<td>Tested</td>
+<td><code>engine = &quot;gp&quot;</code> is wired to <code>brms::brm()</code> with <code>gp_kernel = &quot;rbf&quot;</code> mapped to <code>cov = &quot;exp_quad&quot;</code> and <code>gp_kernel = &quot;matern32&quot;</code> mapped to <code>cov = &quot;matern32&quot;</code>; formula behavior, missing-dependency behavior, and a fitted Matern32 <code>brms</code> smoke test are covered in <code>test-gp-brms-backend.R</code>.</td>
+<td>Approval signoff; optionally add a fitted RBF smoke test for symmetric kernel coverage.</td>
+</tr>
+<tr>
+<td>0.3.1.4</td>
+<td>Grouped CV</td>
+<td>Tested</td>
+<td><code>cross_validate_trajectory()</code> is engine-generic and fitted GP grouped CV is covered in <code>test-gp-brms-backend.R</code> with held-out subjects and <code>allow_new_levels = TRUE</code>; grouped split behavior is also tested on spline model frames.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.1.5</td>
+<td>Prediction</td>
+<td>Tested</td>
+<td>GP <code>predict.levaim_fit()</code> dispatches through fitted <code>brms</code> objects; <code>test-gp-brms-backend.R</code> fits a GP and checks predictions.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.1.6</td>
+<td>Effect plots</td>
+<td>Tested</td>
+<td><code>trajectory_effects()</code> and <code>plot_trajectory_effects()</code> support GP fits through fitted-value summaries; <code>test-gp-brms-backend.R</code> checks GP effect output columns and row counts after fitting.</td>
+<td>Approval signoff; add explicit plot smoke test if required by reviewer.</td>
+</tr>
+<tr>
+<td>0.3.1.7</td>
+<td>Stable API</td>
+<td>Prototype</td>
+<td>Shared model specification/control API includes <code>engine = &quot;gp&quot;</code>; GP lifecycle remains prototype while broader GP coverage and reviewer feedback are pending.</td>
+<td>Freeze GP-facing function signatures after fitted backend review.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Checkpoint summary:</strong> 6/7 are tested or documented, and 1/7 remains prototype
+pending GP API freeze. No items are marked approved.</p>
+<h2 id="d032-gaussian-processes-end-of-development-checkpoint">D0.3.2 Gaussian Processes End-of-Development Checkpoint</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Current status</th>
+<th>Evidence</th>
+<th>Gap before checkpoint credit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.3.2.1</td>
+<td>Sparse GPs</td>
+<td>Not started</td>
+<td>No sparse GP implementation found.</td>
+<td>Add sparse approximation strategy and tests.</td>
+</tr>
+<tr>
+<td>0.3.2.2</td>
+<td>Multi-feature fitting</td>
+<td>Prototype</td>
+<td>Interpreted as single-response modeling with multiple covariate features. GP formula compilation supports multiple covariates; fitted multi-covariate GP examples are not yet covered.</td>
+<td>Add fitted multi-covariate GP examples/tests.</td>
+</tr>
+<tr>
+<td>0.3.2.3</td>
+<td>Classification + beta family</td>
+<td>Not started</td>
+<td>The brms GP backend currently gates execution to <code>family = &quot;gaussian&quot;</code>.</td>
+<td>Add response-family support and examples/tests.</td>
+</tr>
+<tr>
+<td>0.3.2.4</td>
+<td>Additional kernels supported</td>
+<td>Prototype</td>
+<td>The brms GP backend supports the starting RBF/Matern32 set; additional kernels remain future work.</td>
+<td>Add implemented kernels beyond the starting set.</td>
+</tr>
+<tr>
+<td>0.3.2.5</td>
+<td>Interpretability summaries</td>
+<td>Prototype</td>
+<td><code>trajectory_results()</code> supports GP fits with kernel/covariance metadata and is covered by a fitted <code>brms</code> smoke test.</td>
+<td>Add richer GP interpretability summaries beyond kernel metadata.</td>
+</tr>
+<tr>
+<td>0.3.2.6</td>
+<td>High-level longitudinal microbiome workflows</td>
+<td>Prototype</td>
+<td><code>full-pipeline.Rmd</code> demonstrates the real-file spline workflow and includes an optional GP setup block; no fitted GP workflow vignette or wrapper exists.</td>
+<td>Add GP workflow wrappers/vignettes.</td>
+</tr>
+<tr>
+<td>0.3.2.7</td>
+<td>Serialization</td>
+<td>Implemented</td>
+<td><code>save_levaim_object()</code> and <code>load_levaim_object()</code> support LEVAiM fits, results, model frames, datasets, specifications, trajectories, controls, and CV objects. Spline fit/result round trips are tested.</td>
+<td>Add fitted GP serialization round-trip test before GP end-development credit.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Checkpoint summary:</strong> 0/7 are ready for end-of-development credit. No items
+are marked approved.</p>
+<h2 id="d033-spline-regression-mid-development-checkpoint">D0.3.3 Spline Regression Mid-Development Checkpoint</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Current status</th>
+<th>Evidence</th>
+<th>Gap before checkpoint credit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.3.3.1</td>
+<td>Package skeleton</td>
+<td>Documented</td>
+<td>Standard R package layout exists.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.3.2</td>
+<td>Data parsing and preprocessing pipeline</td>
+<td>Tested + documented</td>
+<td>MetaPhlAn/HUMAnN parsers, <code>LongitudinalDataset()</code>, sparse/missing annotation preprocessing, <code>data-loading</code> vignette, <code>full-pipeline</code> vignette, Backhed example-file test.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.3.3</td>
+<td>Spline regression with natural/cubic starting set</td>
+<td>Tested + documented</td>
+<td><code>spline_basis = &quot;natural&quot;</code> compiles through <code>splines::ns()</code> and <code>spline_basis = &quot;cubic&quot;</code> compiles through <code>splines::bs()</code>; both are covered by tests and generated manuals.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.3.4</td>
+<td>Grouped CV</td>
+<td>Tested + documented</td>
+<td><code>grouped_cv_folds()</code> and <code>cross_validate_trajectory()</code> hold out whole subjects and compute RMSE/MAE; tested in <code>test-validation-and-effects.R</code>.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.3.5</td>
+<td>Prediction</td>
+<td>Tested + documented</td>
+<td><code>predict.levaim_fit()</code> is exported and directly tested on spline fits.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.3.6</td>
+<td>Effect plots</td>
+<td>Tested + documented</td>
+<td><code>trajectory_effects()</code> returns inspectable prediction data and <code>plot_trajectory_effects()</code> plots it; both are tested.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.3.7</td>
+<td>Stable API</td>
+<td>Tested + documented</td>
+<td><code>API-LIFECYCLE.md</code> classifies stable, experimental, and prototype surfaces; <code>test-api-lifecycle.R</code> guards stable exported signatures and return classes.</td>
+<td>Approval signoff.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Checkpoint summary:</strong> 7/7 now have tested or documented evidence. No items are
+marked approved.</p>
+<h2 id="d034-spline-regression-later-checkpoint">D0.3.4 Spline Regression Later Checkpoint</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Current status</th>
+<th>Evidence</th>
+<th>Gap before checkpoint credit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.3.4.1</td>
+<td>Additive models/GAM support</td>
+<td>Tested + documented</td>
+<td><code>mgcv::gam()</code> backend, spline pipeline test, README, toy-example vignette, full-pipeline vignette.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.4.2</td>
+<td>Automatic smoothness selection</td>
+<td>Tested + documented</td>
+<td>Spline backend uses <code>method = &quot;REML&quot;</code> by default and <code>select = TRUE</code>; <code>spline_k</code> is capped by observed time points and spline controls are documented.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.4.3</td>
+<td>Multi-feature fitting</td>
+<td>Tested + documented</td>
+<td>Interpreted as single-response modeling with multiple covariate features. <code>model_spec(covariates = list(...))</code> supports categorical, continuous, and random-effect covariates; <code>varying_trajectory(by = c(...))</code> supports multiple declared trajectory modifiers; tests and the full-pipeline vignette cover this workflow.</td>
+<td>Approval signoff.</td>
+</tr>
+<tr>
+<td>0.3.4.4</td>
+<td>Classification + beta family</td>
+<td>Prototype</td>
+<td><code>family</code> control is accepted, but no classification/beta workflow or tests exist.</td>
+<td>Validate supported families and add tests/examples.</td>
+</tr>
+<tr>
+<td>0.3.4.5</td>
+<td>Derivative extraction</td>
+<td>Not started</td>
+<td>No derivative API found.</td>
+<td>Add derivative extraction for spline smooths.</td>
+</tr>
+<tr>
+<td>0.3.4.6</td>
+<td>Interpretability summaries</td>
+<td>Prototype</td>
+<td><code>trajectory_results()</code> extracts fit metrics and smooth tables.</td>
+<td>Add higher-level biological/effect summaries.</td>
+</tr>
+<tr>
+<td>0.3.4.7</td>
+<td>High-level microbiome workflows</td>
+<td>Tested + documented</td>
+<td><code>full-pipeline.Rmd</code> demonstrates a real-file workflow, and <code>test_assay_features()</code> provides an anpan_batch-style middle-layer workflow for per-feature assay testing with FDR correction.</td>
+<td>Approval signoff; broaden workflow wrappers for additional common analysis patterns.</td>
+</tr>
+<tr>
+<td>0.3.4.8</td>
+<td>Serialization</td>
+<td>Tested + documented</td>
+<td><code>save_levaim_object()</code> and <code>load_levaim_object()</code> serialize LEVAiM fits and results through RDS; spline fit/result round trips and post-load prediction are tested.</td>
+<td>Approval signoff.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Checkpoint summary:</strong> 5/8 are tested and documented, 2/8 are prototypes, and
+1/8 is not started. No items are marked approved.</p>
+<h2 id="recommended-next-implementation-order">Recommended Next Implementation Order</h2>
+<ol>
+<li>Review and sign off D0.3.3 spline mid-development evidence.</li>
+<li>Add derivative extraction for spline smooths.</li>
+<li>Add classification and beta-family validation/examples.</li>
+<li>Add fitted GP serialization round-trip coverage.</li>
+<li>Broaden high-level workflow wrappers after the per-feature testing workflow
+has been reviewed.</li>
+<li>Expand GP end-development work: sparse GP strategy, fitted multi-covariate
+GP examples, additional kernels, richer interpretability, and GP workflows.</li>
+</ol>
+
+</body>
+</html>

@@ -72,11 +72,47 @@ fit_trajectory_spline <- function(mf) {
 
 #' @keywords internal
 fit_trajectory_gp <- function(mf) {
+  if (!requireNamespace("brms", quietly = TRUE)) {
+    cli::cli_abort(c(
+      "The GP backend requires the {.pkg brms} package.",
+      "i" = "Install {.pkg brms} and a Stan backend, then retry with `engine = 'gp'`."
+    ))
+  }
 
-  cli::cli_abort(
-    "GP backend has not yet been implemented."
+  if (mf$control$family != "gaussian") {
+    cli::cli_abort("The brms GP backend currently supports `family = 'gaussian'`.")
+  }
+
+  fit <- brms::brm(
+    formula = mf$formula,
+    data = mf$data,
+    family = "gaussian",
+    chains = mf$control$gp$chains,
+    iter = mf$control$gp$iter,
+    cores = mf$control$gp$cores,
+    seed = mf$control$seed,
+    refresh = 0
   )
 
+  structure(
+    list(
+      fit = fit,
+      model_frame = mf,
+      engine = "gp"
+    ),
+    class = "levaim_fit"
+  )
+}
+
+
+#' @keywords internal
+brms_gp_covariance <- function(kernel) {
+  switch(
+    kernel,
+    rbf = "exp_quad",
+    matern32 = "matern32",
+    cli::cli_abort("Unknown GP kernel: {.val {kernel}}.")
+  )
 }
 
 #' @export
@@ -96,7 +132,11 @@ print.levaim_fit <- function(x, ...) {
     "Formula:"
   )
 
-  print(formula(x$fit))
+  if (x$engine == "gp") {
+    print(x$model_frame$formula)
+  } else {
+    print(formula(x$fit))
+  }
 
   invisible(x)
 
@@ -113,6 +153,10 @@ summary.levaim_fit <- function(object, ...) {
 
   }
 
+  if (object$engine == "gp") {
+    return(summary(object$fit))
+  }
+
   NextMethod()
 
 }
@@ -124,11 +168,12 @@ predict.levaim_fit <- function(
     ...
 ) {
 
-  predict(
-    object$fit,
-    newdata = newdata,
-    ...
-  )
+  if (object$engine == "gp") {
+    fitted <- stats::fitted(object$fit, newdata = newdata, ...)
+    return(as.numeric(fitted[, "Estimate"]))
+  }
+
+  predict(object$fit, newdata = newdata, ...)
 
 }
 
@@ -138,10 +183,10 @@ plot.levaim_fit <- function(
     ...
 ) {
 
-  plot(
-    x$fit,
-    pages = 1,
-    ...
-  )
+  if (x$engine == "gp") {
+    return(plot_trajectory_effects(x, ...))
+  }
+
+  plot(x$fit, pages = 1, ...)
 
 }

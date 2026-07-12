@@ -4,12 +4,14 @@
 \alias{compile_formula_spline}
 \title{Compile a spline/GAM formula}
 \usage{
-compile_formula_spline(traj, k = NULL)
+compile_formula_spline(traj, k = NULL, basis = "gam")
 }
 \arguments{
 \item{traj}{A `levaim_trajectory` object.}
 
 \item{k}{Optional basis dimension for spline smooths.}
+
+\item{basis}{Spline basis. One of `"gam"`, `"natural"`, or `"cubic"`.}
 }
 \value{
 A formula.
