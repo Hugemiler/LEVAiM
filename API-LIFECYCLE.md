@@ -22,7 +22,7 @@ Breaking changes to stable APIs require:
 
 ## Stable API
 
-These functions form the stable spline mid-development API:
+These functions form the frozen 0.1.x proof-of-concept API:
 
 | Function | Stability | Stable contract |
 | --- | --- | --- |
@@ -40,18 +40,19 @@ These functions form the stable spline mid-development API:
 | `trajectory()` | Stable | Combines a model specification with a trajectory design. |
 | `trajectory_control()` | Stable | Declares engine, family, transformation, spline controls, GP controls, and sparse/missing annotation preprocessing controls. |
 | `model_frame()` | Stable | Builds a backend-aware `levaim_model_frame`. |
-| `fit_trajectory()` | Stable for `engine = "spline"` | Fits a spline trajectory and returns a `levaim_fit`. |
-| `predict.levaim_fit()` | Stable for spline fits | Predicts from a fitted spline trajectory. |
-| `summary.levaim_fit()` | Stable for spline fits | Returns the backend summary for spline fits. |
-| `plot.levaim_fit()` | Stable for spline fits | Draws the backend spline plot. |
-| `trajectory_results()` | Stable for spline fits | Returns a `levaim_results` summary. |
+| `fit_trajectory()` | Stable for spline and GP engines | Fits a trajectory and returns a `levaim_fit`; GP supports exact or Hilbert-space approximate fitting and Gaussian, binomial, or beta families. |
+| `predict.levaim_fit()` | Stable | Returns response-scale predictions from spline and GP fits. |
+| `summary.levaim_fit()` | Stable | Returns the corresponding backend summary. |
+| `plot.levaim_fit()` | Stable | Draws the corresponding backend plot. |
+| `trajectory_results()` | Stable | Returns an engine-aware `levaim_results` summary. |
 | `grouped_cv_folds()` | Stable | Creates grouped folds without splitting groups across train/test sets. |
 | `cross_validate_trajectory()` | Stable for spline model frames | Runs grouped/repeated CV and returns `levaim_cv` with fold metrics, summaries, and optional held-out predictions. |
 | `cv_summary()` | Stable for spline CV objects | Returns aggregate CV metric summaries. |
 | `cv_predictions()` | Stable for spline CV objects | Returns held-out CV predictions when retained. |
-| `trajectory_effects()` | Stable for spline fits | Returns an inspectable trajectory effect data frame. |
-| `trajectory_derivatives()` | Stable for spline fits | Returns finite-difference local rate-of-change estimates without peak/valley interpretation. |
-| `plot_trajectory_effects()` | Stable for spline fits | Plots trajectory effects and invisibly returns the effects data. |
+| `trajectory_effects()` | Stable | Returns an inspectable trajectory effect data frame for spline and GP fits. |
+| `trajectory_derivatives()` | Stable | Returns finite-difference local rates without peak/valley interpretation. GP fits differentiate posterior fitted trajectories and report pointwise credible intervals and sign probabilities. |
+| `plot_trajectory_effects()` | Stable | Plots trajectory effects and invisibly returns the effects data. |
+| `save_levaim_object()` / `load_levaim_object()` | Stable | Writes schema-versioned RDS envelopes, rejects unsupported future schemas, and reads legacy raw LEVAiM RDS objects. |
 
 ## Experimental API
 
@@ -61,25 +62,26 @@ These functions are available but may change before later checkpoints:
 | --- | --- | --- |
 | `read_metaphlan()` | Experimental | Parsing is functional and tested for current example files; additional MetaPhlAn variants may require argument/default changes. |
 | `read_humann()` | Experimental | HUMAnN parsing is functional, but larger workflow coverage is still developing. |
-| `save_levaim_object()` | Experimental | RDS-based serialization is tested for spline fits and results, but broader object-versioning policy is still developing. |
-| `load_levaim_object()` | Experimental | RDS-based deserialization validates LEVAiM classes, but compatibility guarantees across object schema changes are still developing. |
-| `test_assay_features()` | Experimental | Per-feature assay testing is tested for spline workflows, but additional test types and GP-scale performance patterns are still developing. |
+| `test_assay_features()` | Experimental | Per-feature spline testing supports declared overall-trajectory, trajectory-difference, and adjusted covariate hypotheses. Trajectory differences use covariance-calibrated maximum fitted contrasts over explicit levels and inference grids; GP-scale inference remains future work. |
+| `trajectory_contrasts()` | Experimental | Returns covariance-aware pointwise group contrasts over time for localization after an omnibus trajectory test. |
+| `trajectory_moments()` | Experimental | Returns engine-neutral functional summaries over declared windows using spline coefficient draws or GP posterior fitted draws. |
+| `compare_trajectory_moments()` | Experimental | Returns draw-based between-group moment differences with intervals, tail probabilities, q-values, and explicit inferential warnings. |
+| `plot_trajectory_report()` | Experimental | Returns a ggplot trajectory panel with raw observations, fitted curves, uncertainty, selected levels, and optional biological-window highlighting. |
+| `plot_trajectory_contrasts()` | Experimental | Returns faceted time-localized fitted differences with pointwise uncertainty and zero-crossing markers. |
+| `plot_trajectory_moments()` | Experimental | Returns faceted moment estimate and uncertainty panels from the long moments table. |
+| `plot_trajectory_moment_comparisons()` | Experimental | Returns forest-style group-difference panels from the moment-comparison table. |
 | `compare_trajectories()` | Experimental | Trajectory comparison long tables are tested for spline workflows; subject-aware permutation inference and broader GP-scale examples are still developing. |
 | `trajectory_distance_matrix()` | Experimental | Matrix extraction derives heatmap-ready matrices from current fitted-distance comparison tables; naming and matrix selection details may evolve with plotting helpers. |
 | `derive_time_varying_features()` | Experimental | Exposure-history derivation is tested for initial window, ever, last-observed, and transition summaries; additional summary types and audit policies may evolve. |
 | `exposure_window()` / `exposure_ever()` / `exposure_last_observed()` / `exposure_transition()` | Experimental | Constructors create lightweight exposure-summary specifications consumed by `derive_time_varying_features()`. |
 
-## Prototype API
+## GP Backend Boundary
 
-These controls are implemented enough for proof-of-concept use, but the GP
-surface is not checkpoint-stable:
-
-| Surface | Stability | Reason |
-| --- | --- | --- |
-| `trajectory_control(engine = "gp")` | Prototype | GP fitting is wired through `brms` and has fitted smoke-test coverage, but remains early and requires optional Stan tooling. |
-| `trajectory_control(gp_kernel = ...)` | Prototype | Kernel choices are mapped to `brms` covariances for RBF and Matern32; broader kernel coverage and sparse approximations are future work. |
-| `compile_formula(..., engine = "gp")` | Prototype | GP formula generation is tested for `brms` RBF/Matern32 terms, but the GP API is not yet stable. |
-| `fit_trajectory(..., engine = "gp")` | Prototype | Fitted Matern32 GP smoke tests cover fit, prediction, results, effects, and grouped CV; additional families, sparse GP, and reviewer signoff remain open. |
+The frozen GP surface supports exact and Hilbert-space approximate models,
+Gaussian/binomial/beta families, and RBF, exponential, Matern-3/2, and
+Matern-5/2 kernels through `brms`. GP-scale assay-wide batch inference remains
+experimental because its computational and multiplicity contract is not yet
+settled.
 
 ## Proof-of-Concept Workflows
 
@@ -94,7 +96,9 @@ The package currently documents the workflow as real-file functional modules:
 | `spline-fitting` | Following up a screen-derived feature with results, effects, plots, and derivatives. |
 | `validation` | Subject-grouped folds, repeated cross-validation, aggregate summaries, and held-out predictions for screen-derived follow-up models. |
 | `trajectory-analysis` | Long trajectory-comparison tables and fitted-distance matrix generation for retained screen hits. |
-| `gaussian-processes` | GP follow-up setup for screened trajectories, including RBF/Matern32 controls and brms/Stan fitting entry points. |
+| `gp-crash-course` | Conceptual introduction to GP trajectory assumptions, kernels, likelihoods, approximation, diagnostics, derivatives, and biological interpretation. |
+| `gaussian-processes` | Executable full-cohort Backhed GP follow-up with diagnostic gating, prediction, posterior derivatives, moments, plotting, and serialization. |
+| `response-families` | Real-data spline workflow separating binomial occurrence from beta-distributed positive abundance under the explicit zero/one boundary policy. |
 
 The proof-of-concept analysis layer follows a table-first rule. Per-feature
 screening can retain fitted models with `keep_fits = TRUE`, and

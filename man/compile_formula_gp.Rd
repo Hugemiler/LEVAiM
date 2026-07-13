@@ -4,7 +4,7 @@
 \alias{compile_formula_gp}
 \title{Compile a GP formula}
 \usage{
-compile_formula_gp(traj, kernel = "matern32")
+compile_formula_gp(traj, kernel = "matern32", basis_k = NULL)
 }
 \arguments{
 \item{traj}{A `levaim_trajectory` object.}

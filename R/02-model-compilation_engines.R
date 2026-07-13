@@ -9,6 +9,7 @@
 #' @param spline_k Optional basis dimension for spline smooths.
 #' @param spline_basis Spline basis for spline models.
 #' @param gp_kernel GP kernel for GP models.
+#' @param gp_basis_k Optional Hilbert-space GP basis dimension.
 #'
 #' @return A formula.
 #' @importFrom splines ns bs
@@ -18,7 +19,8 @@ compile_formula <- function(
     engine = c("spline", "gp"),
     spline_k = NULL,
     spline_basis = "gam",
-    gp_kernel = "matern32"
+    gp_kernel = "matern32",
+    gp_basis_k = NULL
 ) {
   engine <- match.arg(engine)
 
@@ -29,7 +31,7 @@ compile_formula <- function(
   switch(
     engine,
     spline = compile_formula_spline(traj, k = spline_k, basis = spline_basis),
-    gp = compile_formula_gp(traj, kernel = gp_kernel)
+    gp = compile_formula_gp(traj, kernel = gp_kernel, basis_k = gp_basis_k)
   )
 }
 
@@ -72,13 +74,18 @@ compile_formula_spline <- function(traj, k = NULL, basis = "gam") {
 #'
 #' @return A formula.
 #' @keywords internal
-compile_formula_gp <- function(traj, kernel = "matern32") {
+compile_formula_gp <- function(traj, kernel = "matern32", basis_k = NULL) {
   spec <- traj$spec
   design <- traj$design
 
   rhs_terms <- c(
     compile_covariate_terms_gp(spec$covariates),
-    compile_time_terms_gp(spec$time$column, design, kernel = kernel),
+    compile_time_terms_gp(
+      spec$time$column,
+      design,
+      kernel = kernel,
+      basis_k = basis_k
+    ),
     paste0("(1 | ", spec$subject$column, ")")
   )
 
@@ -188,17 +195,26 @@ compile_time_terms_spline <- function(time_col, design, k = NULL, basis = "gam")
 #' Compile time trajectory terms for GP/brms models
 #'
 #' @keywords internal
-compile_time_terms_gp <- function(time_col, design, kernel = "matern32") {
+compile_time_terms_gp <- function(
+    time_col,
+    design,
+    kernel = "matern32",
+    basis_k = NULL
+) {
   cov <- brms_gp_covariance(kernel)
+  k_arg <- if (is.null(basis_k)) "" else paste0(", k = ", as.integer(basis_k))
 
   if (design$type %in% c("shared", "naive")) {
-    return(paste0("gp(", time_col, ", cov = '", cov, "')"))
+    return(paste0("gp(", time_col, ", cov = '", cov, "'", k_arg, ")"))
   }
 
   if (design$type == "varying") {
     by_expr <- trajectory_by_expr(design)
 
-    return(paste0("gp(", time_col, ", by = ", by_expr, ", cov = '", cov, "')"))
+    return(paste0(
+      "gp(", time_col, ", by = ", by_expr,
+      ", cov = '", cov, "'", k_arg, ")"
+    ))
   }
 
   cli::cli_abort("Unknown trajectory design type: {.val {design$type}}.")

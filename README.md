@@ -22,7 +22,8 @@ The package currently supports:
 - sparse and missing categorical annotation handling;
 - derivation of subject-level features from time-varying exposures;
 - assay-wide per-feature testing with FDR correction;
-- prediction, trajectory effects, and compact result summaries.
+- prediction, trajectory effects, localized contrasts, functional moment
+  reports, and compact result summaries.
 
 ## Vignettes
 
@@ -152,11 +153,20 @@ feature_tests <- test_assay_features(
   covariates = list(group_effect("feeding_state")),
   design = varying_trajectory("feeding_state"),
   control = trajectory_control(engine = "spline"),
+  hypothesis = "trajectory_difference",
+  test_covariate = "feeding_state",
   keep_fits = TRUE
 )
 
 feature_tests$table
 ```
+
+The screen tests one declared null per feature and records the
+hypothesis, tested levels, inference grid, maximum separation and its
+time, p-value, q-value, and inferential limitation.
+Trajectory-difference tests use a maximum standardized fitted-contrast
+statistic calibrated from the model covariance; they do not select the
+smallest p-value among group-specific smooth terms.
 
 Those retained fits can then be compared as fitted trajectories. The
 default comparison view produces feature-by-feature evidence within each
@@ -172,6 +182,45 @@ trajectory_comparison <- compare_trajectories(
 trajectory_comparison
 trajectory_distance_matrix(trajectory_comparison)
 ```
+
+Functional moments summarize fitted level, AUC, temporal variation,
+timing, trend, and velocity over declared biological windows. The same
+long-table API uses coefficient-covariance draws for splines and
+posterior fitted draws for GPs.
+
+``` r
+moments <- trajectory_moments(
+  feature_tests,
+  windows = data.frame(
+    label = c("early", "feeding_window", "later"),
+    start = c(0, 3, 5),
+    end = c(3, 5, 12)
+  ),
+  draws = 500,
+  seed = 1
+)
+
+moment_comparisons <- compare_trajectory_moments(
+  moments,
+  reference = "ExclFormulaFed"
+)
+
+plot_trajectory_moments(
+  moments,
+  moment = c("mean_level", "auc", "linear_trend"),
+  window = "feeding_window"
+)
+
+plot_trajectory_moment_comparisons(
+  moment_comparisons,
+  moment = c("mean_level", "auc", "linear_trend"),
+  window = "feeding_window"
+)
+```
+
+Peak and valley fields carry explicit statuses such as
+`interior_supported`, `boundary_only`, and `flat_or_uncertain`; boundary
+maxima are not reported as biological peaks.
 
 Correlation p-values in this table are descriptive summaries of fitted
 grid curves; they are labeled as such because grid points are not
@@ -202,10 +251,18 @@ gp_mf <- model_frame(
   trajectory(spec),
   control = trajectory_control(
     engine = "gp",
-    gp_kernel = "matern32" # or "rbf"
+    gp_kernel = "matern32", # also rbf, matern52, exponential
+    gp_basis_k = NULL       # integer for Hilbert-space approximation
   )
 )
 ```
+
+GP posterior derivatives and functional moments use posterior fitted
+draws. The full-cohort Backhed workflow in
+`vignette("gaussian-processes", package = "LEVAiM")` includes an
+explicit R-hat, effective-sample-size, and divergence gate before
+interpretation. Both engines support Gaussian, binomial, and beta
+responses under the explicit boundary policy in `RESPONSE-FAMILIES.md`.
 
 ## API Status
 
@@ -220,6 +277,13 @@ short:
   fitted testing and review.
 
 Requirement coverage is tracked in `REQUIREMENTS-ADHERENCE.md`.
+
+Spline response families are specified explicitly. Binomial responses
+must be exactly 0/1, while beta responses must lie strictly between 0
+and 1. LEVAiM never adds pseudocounts or moves boundary values silently.
+See `RESPONSE-FAMILIES.md` and the real-data
+occurrence/positive-abundance workflow in
+`vignette("response-families", package = "LEVAiM")`.
 
 ## Frequently Asked Questions
 
@@ -250,6 +314,9 @@ vignette("model-specification", package = "LEVAiM")
 vignette("feature-testing", package = "LEVAiM")
 vignette("feeding-4mo-trajectories", package = "LEVAiM")
 vignette("spline-fitting", package = "LEVAiM")
+vignette("response-families", package = "LEVAiM")
+vignette("gp-crash-course", package = "LEVAiM")
+vignette("gaussian-processes", package = "LEVAiM")
 vignette("validation", package = "LEVAiM")
 vignette("trajectory-analysis", package = "LEVAiM")
 ```

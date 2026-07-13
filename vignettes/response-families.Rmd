@@ -1,0 +1,206 @@
+---
+title: "Modeling occurrence and positive abundance"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Modeling occurrence and positive abundance}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Ask the response a question it can answer
+
+Microbial relative abundance is bounded, often zero, and rarely Gaussian on its
+original scale. A response family is therefore part of the biological
+hypothesis, not a cosmetic fitting option.
+
+This vignette uses *Bifidobacterium longum* to separate two questions:
+
+1. **Occurrence:** does the probability of detecting the organism change with
+   age? This is a binomial response containing exactly 0 and 1.
+2. **Positive abundance:** among samples where the organism is detected, how
+   does its relative abundance change with age? This is a beta response strictly
+   between 0 and 1.
+
+These models do not jointly constitute a zero-inflated beta model. They are an
+explicit two-part analysis with separately interpretable estimands.
+
+# Load the longitudinal profile
+
+```{r load-data}
+input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) {
+  input_dir <- file.path("examples", "input_files")
+}
+
+metadata <- read.csv(
+  file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+taxa <- read_metaphlan(
+  file.path(
+    input_dir,
+    "BackhedF_2015_mpa_vOct22_CHOCOPhlAnSGB_202403_lon_subsp_RELAB_merged_profile.tsv"
+  ),
+  input_type = "merged",
+  tax_level = "species",
+  include_unclassified = FALSE,
+  clean_sample_names = TRUE
+)
+
+shared_samples <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+rownames(metadata) <- metadata$sample
+taxa <- taxa[rownames(metadata), , drop = FALSE]
+metadata$subject <- factor(metadata$subject)
+
+b_longum <- grep("s__Bifidobacterium_longum$", colnames(taxa), value = TRUE)
+stopifnot(length(b_longum) == 1L)
+
+# MetaPhlAn relative abundance is expressed as a percentage in this file.
+abundance <- taxa[, b_longum]
+metadata$b_longum_detected <- as.integer(abundance > 0)
+metadata$b_longum_positive_fraction <- ifelse(
+  abundance > 0,
+  abundance / 100,
+  NA_real_
+)
+
+ds <- LongitudinalDataset(
+  assays = list(taxa = taxa),
+  metadata = metadata,
+  time_col = "ageMonths",
+  subject_col = "subject"
+)
+```
+
+# Model detection probability
+
+The binomial model retains both detections and non-detections. Predictions are
+probabilities on the response scale, and subject-grouped validation defaults to
+log loss and Brier score.
+
+```{r binomial-fit}
+occurrence_spec <- model_spec(
+  response = metadata_feature("b_longum_detected"),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths")
+)
+
+occurrence_mf <- model_frame(
+  ds,
+  trajectory(occurrence_spec),
+  control = trajectory_control(
+    engine = "spline",
+    family = "binomial",
+    transform = "identity",
+    spline_k = 6
+  )
+)
+
+occurrence_fit <- fit_trajectory(occurrence_mf)
+head(trajectory_effects(occurrence_fit, n = 20))
+```
+
+```{r binomial-validation}
+occurrence_cv <- cross_validate_trajectory(
+  occurrence_mf,
+  v = 3,
+  seed = 1
+)
+cv_summary(occurrence_cv)
+```
+
+# Model abundance conditional on detection
+
+The beta model excludes non-detections because their conditional positive
+abundance is undefined. It models a fraction in the open interval `(0, 1)` and
+uses the beta likelihood directly; LEVAiM does not add pseudocounts or squeeze
+boundary values inward.
+
+```{r beta-fit}
+positive_spec <- model_spec(
+  response = metadata_feature("b_longum_positive_fraction"),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths")
+)
+
+positive_mf <- model_frame(
+  ds,
+  trajectory(positive_spec),
+  control = trajectory_control(
+    engine = "spline",
+    family = "beta",
+    transform = "identity",
+    spline_k = 6
+  )
+)
+
+positive_fit <- fit_trajectory(positive_mf)
+head(trajectory_effects(positive_fit, n = 20))
+```
+
+```{r beta-validation}
+positive_cv <- cross_validate_trajectory(
+  positive_mf,
+  v = 3,
+  seed = 1
+)
+cv_summary(positive_cv)
+```
+
+# Interpret the two trajectories together
+
+The occurrence trajectory estimates when *B. longum* is likely to be present.
+The positive-abundance trajectory estimates its expected proportional abundance
+after presence has already been established. A feeding effect could enter one,
+the other, or both; those outcomes imply different colonization mechanisms.
+
+Do not replace zero abundances with an arbitrary epsilon merely to make the beta
+model run. That changes the response and conflates absence with low positive
+abundance. When a single likelihood must jointly model boundary mass and the
+continuous interior, use an explicit hurdle or zero/one-inflated model outside
+the current LEVAiM API and report that model choice.
+
+# Use the same families with Gaussian processes
+
+The response definitions and boundary policy do not change when the trajectory
+engine changes. GP fitting maps `family = "binomial"` to a Bernoulli likelihood
+and `family = "beta"` to beta regression. Exact and Hilbert-space approximate
+GPs are both available.
+
+```{r gp-family-controls, eval = FALSE}
+occurrence_gp_mf <- model_frame(
+  ds,
+  trajectory(occurrence_spec),
+  control = trajectory_control(
+    engine = "gp",
+    family = "binomial",
+    gp_kernel = "matern32",
+    gp_basis_k = 20
+  )
+)
+
+positive_gp_mf <- model_frame(
+  ds,
+  trajectory(positive_spec),
+  control = trajectory_control(
+    engine = "gp",
+    family = "beta",
+    gp_kernel = "matern32",
+    gp_basis_k = 20
+  )
+)
+```

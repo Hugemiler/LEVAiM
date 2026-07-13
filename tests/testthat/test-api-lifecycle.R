@@ -13,8 +13,8 @@ stable_api_formals <- list(
   trajectory = c("spec", "design"),
   trajectory_control = c(
     "engine", "family", "transform", "na_action", "spline_k",
-    "spline_basis", "spline_method", "gp_kernel", "chains", "iter",
-    "cores", "seed", "sparse_min_n", "sparse_other_level", "missing_level",
+    "spline_basis", "spline_method", "gp_kernel", "gp_basis_k", "chains", "iter",
+    "cores", "adapt_delta", "max_treedepth", "seed", "sparse_min_n", "sparse_other_level", "missing_level",
     "drop_invariant_covariates"
   ),
   model_frame = c("ds", "traj", "control"),
@@ -27,11 +27,19 @@ stable_api_formals <- list(
   cv_predictions = c("x"),
   cv_summary = c("x"),
   trajectory_effects = c("fit", "n", "time_values", "se_fit", "type", "level", "..."),
-  trajectory_derivatives = c("fit", "n", "time_values", "method", "level", "type", "..."),
+  trajectory_contrasts = c("fit", "n", "time_values", "levels", "level"),
+  trajectory_moments = c("fit", "n", "time_values", "windows", "levels", "draws", "level", "seed"),
+  compare_trajectory_moments = c("moments", "reference", "p_adjust_method"),
+  plot_trajectory_report = c("fit", "n", "time_values", "levels", "window", "points", "point_alpha", "palette"),
+  plot_trajectory_contrasts = c("contrasts", "show_points", "palette"),
+  plot_trajectory_moments = c("moments", "moment", "window", "feature", "palette"),
+  plot_trajectory_moment_comparisons = c("comparisons", "moment", "window", "feature", "q_threshold"),
+  trajectory_derivatives = c("fit", "n", "time_values", "method", "level", "type", "draws", "seed", "..."),
   plot_trajectory_effects = c("fit", "effects", "..."),
   test_assay_features = c(
     "ds", "assay", "features", "subject", "time", "covariates", "design",
-    "control", "p_adjust_method", "keep_fits", "error_action"
+    "control", "hypothesis", "test_covariate", "test_levels", "test_time_values",
+    "test_simulations", "test_seed", "p_adjust_method", "keep_fits", "error_action"
   ),
   compare_trajectories = c(
     "fits", "n", "time_values", "windows", "view", "metrics", "standardize",

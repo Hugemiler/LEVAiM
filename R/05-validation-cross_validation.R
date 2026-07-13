@@ -90,7 +90,8 @@ grouped_cv_folds <- function(data, group, v = 5L, seed = NULL) {
 #' @param v Number of folds.
 #' @param group Optional grouping column. Defaults to the model subject column.
 #' @param seed Optional random seed.
-#' @param metrics Metrics to compute. Currently `"rmse"` and `"mae"`.
+#' @param metrics Metrics to compute. Defaults to `"rmse"` and `"mae"` for
+#'   Gaussian/beta models and `"log_loss"` and `"brier"` for binomial models.
 #' @param repeats Number of repeated grouped CV partitions.
 #' @param keep_predictions Logical. Whether to retain held-out predictions.
 #' @param ... Additional arguments passed to `predict()`.
@@ -102,7 +103,7 @@ cross_validate_trajectory <- function(
     v = 5L,
     group = NULL,
     seed = NULL,
-    metrics = c("rmse", "mae"),
+    metrics = NULL,
     repeats = 1L,
     keep_predictions = TRUE,
     ...
@@ -115,7 +116,21 @@ cross_validate_trajectory <- function(
     group <- mf$trajectory$spec$subject$column
   }
 
-  metrics <- match.arg(metrics, c("rmse", "mae"), several.ok = TRUE)
+  if (is.null(metrics)) {
+    metrics <- if (mf$control$family == "binomial") {
+      c("log_loss", "brier")
+    } else {
+      c("rmse", "mae")
+    }
+  }
+  metrics <- match.arg(
+    metrics,
+    c("rmse", "mae", "log_loss", "brier"),
+    several.ok = TRUE
+  )
+  if (mf$control$family != "binomial" && any(metrics %in% c("log_loss", "brier"))) {
+    cli::cli_abort("`log_loss` and `brier` metrics require `family = 'binomial'`.")
+  }
   repeats <- as.integer(repeats)
 
   if (length(repeats) != 1L || is.na(repeats) || repeats < 1L) {
@@ -214,6 +229,18 @@ evaluate_cv_fold <- function(
     out$mae <- mean(abs(observed - pred), na.rm = TRUE)
   }
 
+  if ("log_loss" %in% metrics) {
+    probability <- pmin(pmax(pred, .Machine$double.eps), 1 - .Machine$double.eps)
+    out$log_loss <- -mean(
+      observed * log(probability) + (1 - observed) * log(1 - probability),
+      na.rm = TRUE
+    )
+  }
+
+  if ("brier" %in% metrics) {
+    out$brier <- mean((observed - pred)^2, na.rm = TRUE)
+  }
+
   predictions <- NULL
   if (isTRUE(keep_predictions)) {
     sample_id <- rownames(test_data)
@@ -297,12 +324,20 @@ cv_summary <- function(x) {
 predict_for_validation <- function(fit, newdata, ...) {
   if (fit$engine == "spline") {
     prediction_data <- neutralize_random_effect_columns(fit$model_frame, newdata)
-
-    return(as.numeric(stats::predict(
-      fit$fit,
-      newdata = prediction_data,
-      exclude = spline_random_effect_terms(fit$model_frame),
-      ...
+    dots <- list(...)
+    if (is.null(dots$type)) {
+      dots$type <- "response"
+    }
+    return(as.numeric(do.call(
+      stats::predict,
+      c(
+        list(
+          fit$fit,
+          newdata = prediction_data,
+          exclude = spline_random_effect_terms(fit$model_frame)
+        ),
+        dots
+      )
     )))
   }
 

@@ -210,10 +210,139 @@ plot_trajectory_effects <- function(fit, effects = NULL, ...) {
 }
 
 
+#' Extract pairwise trajectory contrasts over time
+#'
+#' Computes covariance-aware pairwise differences between fitted trajectory
+#' groups on a common time grid. Pointwise p-values localize separation but do
+#' not replace an omnibus trajectory test.
+#'
+#' @param fit A varying-trajectory spline `levaim_fit`.
+#' @param n Number of grid points when `time_values` is not supplied.
+#' @param time_values Optional numeric time grid.
+#' @param levels Optional character vector of trajectory-group levels to compare.
+#' @param level Confidence level for pointwise intervals.
+#'
+#' @return A data.frame with one row per time and group-pair contrast.
+#' @export
+trajectory_contrasts <- function(
+    fit,
+    n = 100L,
+    time_values = NULL,
+    levels = NULL,
+    level = 0.95
+) {
+  if (!inherits(fit, "levaim_fit") || fit$engine != "spline") {
+    cli::cli_abort("`fit` must be a fitted spline trajectory.")
+  }
+
+  mf <- fit$model_frame
+  design <- mf$trajectory$design
+  if (design$type != "varying" || length(design$by) != 1L) {
+    cli::cli_abort("Trajectory contrasts currently require one varying-trajectory modifier.")
+  }
+
+  time_col <- mf$trajectory$spec$time$column
+  group_col <- design$by[[1L]]
+  observed_levels <- if (is.factor(mf$data[[group_col]])) {
+    levels(mf$data[[group_col]])
+  } else {
+    sort(unique(as.character(mf$data[[group_col]])))
+  }
+  levels <- levels %||% observed_levels
+
+  if (!is.character(levels) || length(levels) < 2L) {
+    cli::cli_abort("`levels` must select at least two trajectory-group levels.")
+  }
+  missing_levels <- setdiff(levels, observed_levels)
+  if (length(missing_levels) > 0L) {
+    cli::cli_abort(
+      "Unknown trajectory level(s): {paste(missing_levels, collapse = ', ')}"
+    )
+  }
+
+  if (is.null(time_values)) {
+    observed_time <- mf$data[[time_col]]
+    time_values <- seq(
+      min(observed_time, na.rm = TRUE),
+      max(observed_time, na.rm = TRUE),
+      length.out = as.integer(n)
+    )
+  }
+  time_values <- sort(unique(as.numeric(time_values)))
+
+  grid <- effect_reference_grid(mf, time_values)
+  grid[[group_col]] <- NULL
+  group_grid <- data.frame(.group = levels, stringsAsFactors = FALSE)
+  names(group_grid) <- group_col
+  grid <- merge(grid, group_grid, all = TRUE)
+  if (is.factor(mf$data[[group_col]])) {
+    grid[[group_col]] <- factor(grid[[group_col]], levels = observed_levels)
+  }
+  grid <- grid[order(grid[[time_col]], grid[[group_col]]), , drop = FALSE]
+
+  exclude <- spline_random_effect_terms(mf)
+  design_matrix <- stats::predict(
+    fit$fit,
+    newdata = grid,
+    type = "lpmatrix",
+    exclude = exclude
+  )
+  coefficients <- stats::coef(fit$fit)
+  covariance <- stats::vcov(fit$fit)
+  z_multiplier <- stats::qnorm((1 + level) / 2)
+
+  pairs <- utils::combn(levels, 2L, simplify = FALSE)
+  rows <- vector("list", length(pairs) * length(time_values))
+  contrast_rows <- vector("list", length(rows))
+  row_id <- 1L
+
+  for (time_value in time_values) {
+    for (pair in pairs) {
+      first <- which(grid[[time_col]] == time_value & as.character(grid[[group_col]]) == pair[[1L]])
+      second <- which(grid[[time_col]] == time_value & as.character(grid[[group_col]]) == pair[[2L]])
+      contrast <- design_matrix[first, ] - design_matrix[second, ]
+      estimate <- as.numeric(contrast %*% coefficients)
+      se <- sqrt(max(0, as.numeric(contrast %*% covariance %*% contrast)))
+      statistic <- if (is.finite(se) && se > 0) estimate / se else NA_real_
+
+      rows[[row_id]] <- data.frame(
+        time = time_value,
+        group_1 = pair[[1L]],
+        group_2 = pair[[2L]],
+        estimate = estimate,
+        std_error = se,
+        lower = estimate - z_multiplier * se,
+        upper = estimate + z_multiplier * se,
+        z_value = statistic,
+        p_value = if (is.finite(statistic)) {
+          2 * stats::pnorm(-abs(statistic))
+        } else {
+          NA_real_
+        },
+        stringsAsFactors = FALSE
+      )
+      contrast_rows[[row_id]] <- as.numeric(contrast)
+      row_id <- row_id + 1L
+    }
+  }
+
+  out <- do.call(rbind, rows)
+  names(out)[names(out) == "time"] <- time_col
+  attr(out, "contrast_matrix") <- do.call(rbind, contrast_rows)
+  attr(out, "coefficient_covariance") <- covariance
+  attr(out, "group_variable") <- group_col
+  attr(out, "time_variable") <- time_col
+  attr(out, "tested_levels") <- levels
+  out
+}
+
+
 #' Estimate trajectory derivatives
 #'
-#' Estimates local rates of change from fitted spline trajectory effects using
-#' finite differences. This function reports derivative estimates; it does not
+#' Estimates local rates of change using finite differences. Spline derivatives
+#' use fitted effects. GP derivatives are calculated for each posterior fitted
+#' trajectory and summarized with pointwise credible intervals and posterior
+#' sign probabilities. This function reports derivative estimates; it does not
 #' infer peaks, valleys, or biological shape classes.
 #'
 #' @param fit A `levaim_fit`.
@@ -222,6 +351,8 @@ plot_trajectory_effects <- function(fit, effects = NULL, ...) {
 #' @param method Derivative method. Currently only `"finite_difference"`.
 #' @param level Confidence level passed to [trajectory_effects()].
 #' @param type Prediction type passed to the backend.
+#' @param draws Maximum number of posterior draws used for GP derivatives.
+#' @param seed Sampling seed when GP posterior draws are thinned.
 #' @param ... Additional arguments passed to [trajectory_effects()].
 #'
 #' @return A data.frame with fitted trajectory effects and derivative columns.
@@ -233,6 +364,8 @@ trajectory_derivatives <- function(
     method = c("finite_difference"),
     level = 0.95,
     type = "response",
+    draws = 500L,
+    seed = 1L,
     ...
 ) {
   method <- match.arg(method)
@@ -241,8 +374,15 @@ trajectory_derivatives <- function(
     cli::cli_abort("`fit` must be created with `fit_trajectory()`.")
   }
 
-  if (fit$engine != "spline") {
-    cli::cli_abort("Trajectory derivatives are currently implemented for spline fits only.")
+  if (!fit$engine %in% c("spline", "gp")) {
+    cli::cli_abort("Trajectory derivatives require a spline or GP fit.")
+  }
+  if (!is.numeric(level) || length(level) != 1L || level <= 0 || level >= 1) {
+    cli::cli_abort("`level` must lie strictly between 0 and 1.")
+  }
+  draws <- as.integer(draws)
+  if (length(draws) != 1L || is.na(draws) || draws < 20L) {
+    cli::cli_abort("`draws` must be an integer >= 20.")
   }
 
   effects <- trajectory_effects(
@@ -263,11 +403,91 @@ trajectory_derivatives <- function(
     character()
   }
 
-  finite_difference_effects(
+  if (fit$engine == "gp") {
+    return(posterior_derivative_effects(
+      fit = fit,
+      effects = effects,
+      time_col = time_col,
+      by_cols = by_cols,
+      draws = draws,
+      level = level,
+      seed = seed
+    ))
+  }
+
+  out <- finite_difference_effects(
     effects = effects,
     time_col = time_col,
     by_cols = by_cols
   )
+  out$.probability_positive <- NA_real_
+  out$.derivative_method <- "fitted_finite_difference"
+  out$.draws <- NA_integer_
+  out
+}
+
+
+#' @keywords internal
+posterior_derivative_effects <- function(
+    fit,
+    effects,
+    time_col,
+    by_cols = character(),
+    draws = 500L,
+    level = 0.95,
+    seed = 1L
+) {
+  effects$.trajectory_group <- if (length(by_cols) == 0L) {
+    factor("shared")
+  } else {
+    interaction(effects[by_cols], drop = TRUE)
+  }
+  fitted_draws <- trajectory_fitted_draws(fit, effects, draws, seed)
+  probabilities <- c((1 - level) / 2, 1 - (1 - level) / 2)
+
+  pieces <- lapply(split(seq_len(nrow(effects)), effects$.trajectory_group), function(indices) {
+    ordering <- order(effects[[time_col]][indices])
+    indices <- indices[ordering]
+    piece <- effects[indices, , drop = FALSE]
+    time <- piece[[time_col]]
+    group_draws <- fitted_draws[, indices, drop = FALSE]
+    derivative_draws <- apply(group_draws, 1L, function(values) {
+      finite_difference_vector(time, values)
+    })
+    if (is.null(dim(derivative_draws))) {
+      derivative_draws <- matrix(derivative_draws, ncol = 1L)
+    }
+
+    piece$.derivative <- rowMeans(derivative_draws)
+    piece$.lower_derivative <- apply(
+      derivative_draws,
+      1L,
+      stats::quantile,
+      probs = probabilities[[1L]],
+      na.rm = TRUE
+    )
+    piece$.upper_derivative <- apply(
+      derivative_draws,
+      1L,
+      stats::quantile,
+      probs = probabilities[[2L]],
+      na.rm = TRUE
+    )
+    piece$.probability_positive <- rowMeans(derivative_draws > 0, na.rm = TRUE)
+    piece$.sign <- classify_derivative_sign(
+      piece$.derivative,
+      lower = piece$.lower_derivative,
+      upper = piece$.upper_derivative
+    )
+    piece$.derivative_method <- "posterior_finite_difference"
+    piece$.draws <- ncol(derivative_draws)
+    piece
+  })
+
+  out <- do.call(rbind, pieces)
+  rownames(out) <- NULL
+  out$.trajectory_group <- NULL
+  out
 }
 
 

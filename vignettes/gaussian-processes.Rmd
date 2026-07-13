@@ -1,8 +1,8 @@
 ---
-title: "Gaussian-process follow-up for screened trajectories"
+title: "Fitting and interpreting a real-data Gaussian process"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Gaussian-process follow-up for screened trajectories}
+  %\VignetteIndexEntry{Fitting and interpreting a real-data Gaussian process}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -12,23 +12,32 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
 )
+run_gp <- identical(Sys.getenv("LEVAIM_RUN_GP_VIGNETTE"), "true")
 ```
 
 ```{r setup}
 library(LEVAiM)
 ```
 
-# Overview
+# Follow a biological benchmark through the GP backend
 
-The Gaussian-process backend is a follow-up option for features nominated by
-the all-feature screen. It uses the same parse, specification, model-frame, fit,
-and summary workflow as spline models. The difference is the model engine:
-`trajectory_control(engine = "gp")`.
+The assay-wide spline screen identifies candidates efficiently. A Gaussian
+process is a more expensive follow-up model for a trajectory whose uncertainty
+and local rates of change deserve posterior treatment. Here the benchmark is
+*Bifidobacterium longum*, an early gut colonizer already examined in the feeding
+workflow.
 
-Fitted GP models require `brms` and a working Stan backend. The fitting chunks
-below are not evaluated during vignette builds.
+This vignette executes the complete GP path:
 
-# Prepare example data
+`parse -> specify -> build -> compile -> fit -> diagnose -> predict -> derive -> summarize`
+
+The analysis uses every aligned Backhed sample with an observed response. GP
+fitting is opt-in during routine package builds because recompiling a full
+posterior is expensive. Set `LEVAIM_RUN_GP_VIGNETTE=true` to execute the fitted
+analysis. A separately labeled automated smoke test uses tiny data to verify
+backend mechanics; it is not biological evidence.
+
+# Parse the Backhed profile
 
 ```{r load-example}
 input_dir <- file.path("..", "examples", "input_files")
@@ -57,7 +66,6 @@ shared_samples <- intersect(metadata$sample, rownames(taxa))
 metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
 rownames(metadata) <- metadata$sample
 taxa <- taxa[rownames(metadata), , drop = FALSE]
-
 metadata$subject <- factor(metadata$subject)
 
 ds <- LongitudinalDataset(
@@ -66,18 +74,19 @@ ds <- LongitudinalDataset(
   time_col = "ageMonths",
   subject_col = "subject"
 )
+
+b_longum <- grep("s__Bifidobacterium_longum$", colnames(taxa), value = TRUE)
+stopifnot(length(b_longum) == 1L)
 ```
 
-# Declare a GP model frame for a screened feature
+# Specify, build, and compile
 
-```{r gp-frame, eval = FALSE}
-ranked_features <- feature_tests$table[
-  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
-]
-feature <- ranked_features$feature[ranked_features$status == "ok"][[1]]
+The model uses a Matern-3/2 covariance and a subject-specific intercept. The
+response is `log1p` relative abundance, matching the spline follow-up scale.
 
+```{r gp-frame}
 spec <- model_spec(
-  response = assay_feature("taxa", feature),
+  response = assay_feature("taxa", b_longum),
   subject = subject_var("subject"),
   time = time_var("ageMonths")
 )
@@ -89,32 +98,186 @@ gp_mf <- model_frame(
     engine = "gp",
     gp_kernel = "matern32",
     transform = "log1p",
-    na_action = "explicit",
-    sparse_min_n = 5,
     chains = 4,
     iter = 2000,
     cores = 4,
-    seed = 1
+    adapt_delta = 0.999,
+    max_treedepth = 15,
+    seed = 11
   )
 )
 
-gp_mf
+gp_mf$formula
 ```
 
-# Fit and summarize
+# Fit and inspect diagnostics
 
-```{r gp-fit, eval = FALSE}
-gp_fit <- fit_trajectory(gp_mf)
+```{r gp-fit, eval = run_gp}
+gp_fit <- suppressWarnings(fit_trajectory(gp_mf))
+gp_results <- suppressWarnings(trajectory_results(gp_fit))
 
-trajectory_results(gp_fit)
-trajectory_effects(gp_fit)
+gp_results[c("n", "r_sq", "deviance_explained")]
+gp_results$smooth_terms
+gp_results$diagnostics
+stopifnot(isTRUE(gp_results$diagnostics$convergence_ok))
 ```
 
-# Kernel options
+The workflow does not proceed to biological interpretation unless this table
+reports acceptable R-hat, effective sample sizes, and zero divergences.
 
-The starting GP kernels are:
+# Predict and display the trajectory
 
-```{r gp-kernels, eval = FALSE}
-trajectory_control(engine = "gp", gp_kernel = "rbf")
-trajectory_control(engine = "gp", gp_kernel = "matern32")
+```{r gp-effects, fig.height = 4.2, fig.width = 7, eval = run_gp}
+gp_effects <- trajectory_effects(gp_fit, n = 50)
+head(gp_effects)
+
+plot_trajectory_report(gp_fit, n = 50)
+```
+
+# Derive posterior rates of change
+
+`trajectory_derivatives()` differentiates each posterior fitted trajectory on
+the requested time grid. Its interval is therefore an interval for the local
+rate itself, not the derivative of an upper or lower fitted-curve band.
+
+```{r gp-derivatives, eval = run_gp}
+gp_derivatives <- trajectory_derivatives(
+  gp_fit,
+  n = 40,
+  draws = 200,
+  level = 0.95,
+  seed = 12
+)
+
+gp_derivatives[
+  , c(
+    "ageMonths", ".derivative", ".lower_derivative",
+    ".upper_derivative", ".probability_positive", ".sign"
+  )
+]
+```
+
+`increasing` means the entire pointwise credible interval is above zero;
+`decreasing` means it is below zero; `uncertain` means zero remains compatible
+with the posterior derivative. These are local model summaries, not automatic
+colonization phases or tests of a biological mechanism.
+
+In this full-cohort fit, the posterior rate is most likely positive during the
+early months and turns predominantly negative later, but every 95% pointwise
+derivative interval includes zero. The model therefore supports a broad rise and
+fall in fitted abundance without claiming a sharply localized growth or decline
+phase.
+
+# Summarize biologically declared windows
+
+```{r gp-moments, fig.height = 4.5, fig.width = 7, eval = run_gp}
+gp_moments <- trajectory_moments(
+  gp_fit,
+  n = 80,
+  windows = data.frame(
+    label = c("early", "feeding_window", "later"),
+    start = c(0, 3, 5),
+    end = c(3, 5, 12)
+  ),
+  draws = 200,
+  seed = 13
+)
+
+gp_moments[
+  gp_moments$moment %in% c("mean_level", "auc", "linear_trend"),
+]
+
+plot_trajectory_moments(
+  gp_moments,
+  moment = c("mean_level", "auc", "linear_trend")
+)
+```
+
+# Serialize the fitted workflow
+
+```{r gp-serialization, eval = run_gp}
+gp_path <- tempfile(fileext = ".rds")
+save_levaim_object(gp_fit, gp_path)
+restored_gp <- load_levaim_object(gp_path)
+
+head(predict(restored_gp, newdata = gp_mf$data))
+```
+
+# Refit for scientific inference
+
+If the initial full-cohort fit fails its diagnostic gate, increase MCMC depth or
+revise the specification before reporting posterior derivatives or moments.
+
+```{r production-controls, eval = FALSE}
+production_control <- trajectory_control(
+  engine = "gp",
+  gp_kernel = "matern32",
+  transform = "log1p",
+  chains = 4,
+  iter = 4000,
+  cores = 4,
+  adapt_delta = 0.999,
+  max_treedepth = 15,
+  seed = 11
+)
+```
+
+RBF remains available through `gp_kernel = "rbf"`. Kernel choice is a model
+assumption and should be checked with diagnostics and subject-grouped predictive
+validation rather than selected from the smoothest-looking curve.
+
+# Approximate GPs, additional kernels, and response families
+
+Set `gp_basis_k` to use the Hilbert-space approximation implemented by
+`brms::gp(k = ...)`. Leaving it `NULL` retains the exact GP. The basis dimension
+is an approximation control and should be checked for sensitivity; it is not a
+generic sparsity threshold for the microbiome assay.
+
+```{r gp-expanded-controls, eval = FALSE}
+approximate_control <- trajectory_control(
+  engine = "gp",
+  gp_kernel = "matern52",
+  gp_basis_k = 20,
+  chains = 4,
+  iter = 2000
+)
+
+rougher_control <- trajectory_control(
+  engine = "gp",
+  gp_kernel = "exponential"
+)
+```
+
+The complete covariance set is RBF, Matern-1/2 (exponential), Matern-3/2, and
+Matern-5/2. Gaussian, binomial, and beta response families share the same GP
+trajectory API. Binomial responses must be 0/1, and beta responses must remain
+strictly inside `(0, 1)`.
+
+```{r gp-families, eval = FALSE}
+occurrence_control <- trajectory_control(
+  engine = "gp",
+  family = "binomial",
+  gp_basis_k = 20
+)
+
+positive_abundance_control <- trajectory_control(
+  engine = "gp",
+  family = "beta",
+  gp_basis_k = 20
+)
+```
+
+Multiple covariates are declared in the model specification exactly as they are
+for splines; the response remains one assay feature at a time.
+
+```{r gp-multiple-covariates, eval = FALSE}
+adjusted_spec <- model_spec(
+  response = assay_feature("taxa", b_longum),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths"),
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure"),
+    continuous_effect("maternal_age")
+  )
+)
 ```

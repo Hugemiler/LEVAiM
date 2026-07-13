@@ -1,0 +1,350 @@
+---
+title: "A crash course in Gaussian-process trajectories"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{A crash course in Gaussian-process trajectories}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Begin with the problem, not the acronym
+
+Imagine a scatterplot of microbial abundance against infant age. The dots do
+not arrive with a curve attached. We want to describe the underlying trajectory,
+but we do not know whether it is straight, rises and plateaus, peaks, falls, or
+changes direction more than once.
+
+Ordinary linear regression makes a strong opening decision: the trajectory is a
+line. Polynomial regression chooses a larger but still rigid family of shapes.
+Spline regression joins flexible basis functions. A Gaussian process takes a
+different route: it starts with a distribution over possible functions.
+
+In plain language, the model says:
+
+> Before seeing the data, many curves are possible. Nearby ages should usually
+> have related values. After seeing the observations, curves that agree with the
+> data become more plausible and curves that disagree become less plausible.
+
+The result is not just one fitted line. It is a posterior distribution of
+curves. The central fitted trajectory summarizes that distribution, while its
+spread records what remains uncertain.
+
+# So what is a Gaussian process?
+
+The name contains two useful clues.
+
+**Process** means that the object of interest is a function evaluated across an
+input domain. Here the input is time and the function is a latent microbial
+trajectory. We might ask for its value at birth, four months, 4.1 months, or any
+other age inside the modeled range.
+
+**Gaussian** does not necessarily mean that the observed microbiome measurements
+must follow a Gaussian distribution. It means that, before conditioning on the
+data, any finite collection of latent function values is modeled jointly with a
+multivariate normal distribution. For example,
+
+\[
+\{f(1), f(4), f(12)\}
+\]
+
+has a joint Gaussian distribution whose covariance says how strongly the
+trajectory values at 1, 4, and 12 months should be related.
+
+This is the key move. Instead of putting a normal distribution on one number, a
+GP uses a coherent family of multivariate normal distributions to put a
+distribution over an entire function.
+
+# How does one age inform another?
+
+Suppose we observed a high abundance at four months. That observation should
+usually tell us quite a lot about 4.1 months, somewhat less about five months,
+and much less about twelve months. The **kernel** formalizes that decay in
+relatedness.
+
+The GP combines three ingredients:
+
+1. a mean function describing the starting expectation;
+2. a kernel describing how function values co-vary across time;
+3. observations that update the prior distribution of curves into a posterior
+   distribution of curves.
+
+Where observations are dense and consistent, the posterior trajectory can be
+precise. Between distant or sparse observations, more curves remain plausible
+and uncertainty widens. The GP is flexible because it learns from temporal
+proximity; it is not unconstrained.
+
+# The model LEVAiM fits
+
+For subject \(i\) at time \(t\), a LEVAiM GP can be read as
+
+\[
+g\{E(y_{it})\} = X_{it}\beta + f(t) + b_i,
+\qquad
+f \sim \operatorname{GP}(0, K).
+\]
+
+Read the pieces from left to right:
+
+- \(y_{it}\) is the observed response for subject \(i\) at time \(t\);
+- \(g\) is the link function associated with the response family;
+- \(X_{it}\beta\) contains declared feeding, delivery, clinical, or technical
+  covariate effects;
+- \(f(t)\) is the shared time trajectory governed by the GP;
+- \(b_i\) allows each subject to have a different baseline;
+- \(K\) is the kernel that controls how strongly one time informs another.
+
+The notation \(f \sim \operatorname{GP}(0,K)\) means that the prior mean of the
+latent function is zero after accounting for the other model terms, while its
+covariance across time is determined by \(K\). It does not mean the fitted
+trajectory must remain near zero.
+
+# What the GP does, and does not, decide
+
+The GP contributes a structured prior over the unknown function \(f(t)\). It
+does not erase the rest of the model. Three decisions remain distinct:
+
+1. **Likelihood:** what kind of response was observed?
+2. **Mean structure:** which feeding, delivery, clinical, or technical
+   covariates belong in the model?
+3. **Covariance kernel:** how should information be shared across time?
+
+Confusing these layers produces confident nonsense. A smoother kernel cannot
+repair the wrong response family, and Bayesian fitting cannot repair an exposure
+that was derived from the wrong biological window.
+
+# Kernels are assumptions about temporal relatedness
+
+For two times \(t\) and \(t'\), a stationary kernel depends on their distance
+\(r = |t-t'|\). LEVAiM exposes four `brms` covariance choices:
+
+| LEVAiM name | Covariance | Practical character |
+| --- | --- | --- |
+| `"rbf"` | Exponentiated quadratic | Very smooth trajectories |
+| `"matern52"` | Matern 5/2 | Smooth, but less rigid than RBF |
+| `"matern32"` | Matern 3/2 | Moderately rough; the starting default |
+| `"exponential"` | Matern 1/2 | Roughest supported trajectories |
+
+The following plot shows correlation decay at a common length scale. It is a
+picture of the model assumption, not a fitted microbiome result.
+
+```{r kernel-shapes, fig.height = 4.2, fig.width = 7}
+distance <- seq(0, 1, length.out = 200)
+length_scale <- 0.2
+scaled <- distance / length_scale
+
+kernel_shapes <- data.frame(
+  distance = rep(distance, 4),
+  correlation = c(
+    exp(-0.5 * scaled^2),
+    (1 + sqrt(5) * scaled + 5 * scaled^2 / 3) * exp(-sqrt(5) * scaled),
+    (1 + sqrt(3) * scaled) * exp(-sqrt(3) * scaled),
+    exp(-scaled)
+  ),
+  kernel = factor(
+    rep(c("RBF", "Matern 5/2", "Matern 3/2", "Exponential"), each = length(distance)),
+    levels = c("RBF", "Matern 5/2", "Matern 3/2", "Exponential")
+  )
+)
+
+ggplot2::ggplot(
+  kernel_shapes,
+  ggplot2::aes(x = distance, y = correlation, color = kernel)
+) +
+  ggplot2::geom_line(linewidth = 0.9) +
+  ggplot2::scale_color_manual(
+    values = c("#1B6CA8", "#378B29", "#B05A00", "#8A3FFC")
+  ) +
+  ggplot2::labs(
+    x = "Scaled temporal distance",
+    y = "Prior correlation",
+    color = "Kernel"
+  ) +
+  ggplot2::theme_minimal(base_size = 11)
+```
+
+The **length scale** determines how quickly this correlation decays. A large
+length scale favors slow temporal change; a small one permits rapid change. The
+GP marginal standard deviation controls how far the function can move from its
+mean. Both are learned from the data, conditional on the kernel and priors.
+
+# Irregular observations are not missing-data magic
+
+GPs naturally predict on a continuous time axis even when subjects were sampled
+at different ages. A child does not need an observation at every prediction
+month. Information is borrowed through the covariance kernel, and uncertainty
+usually increases where temporal support is weak.
+
+That does **not** mean a GP automatically resolves every missing value:
+
+- an unobserved response at a time point need not be fabricated before fitting;
+- a missing covariate such as feeding state still lacks a model input;
+- an unknown exposure history still requires explicit derivation, imputation,
+  or an uncertainty model;
+- a structurally absent taxon is not interchangeable with a missing assay
+  measurement.
+
+LEVAiM therefore handles irregular chronology through the GP while keeping
+missing-annotation policy explicit in preprocessing and the model specification.
+
+# The likelihood defines the question
+
+The same temporal GP can sit inside different response models:
+
+- `family = "gaussian"` models a continuous response, optionally transformed;
+- `family = "binomial"` models the probability of a 0/1 event such as taxon
+  detection;
+- `family = "beta"` models a continuous proportion strictly inside `(0, 1)`.
+
+Zeros are not silently nudged into a beta model. For zero-containing relative
+abundance, occurrence and positive abundance answer different questions and may
+be modeled separately. See
+`vignette("response-families", package = "LEVAiM")`.
+
+# Exact and approximate GPs
+
+An exact GP works with a covariance matrix whose computational cost grows
+quickly with the number of observations. LEVAiM uses the exact path when
+`gp_basis_k = NULL`.
+
+```{r exact-control}
+exact_gp <- trajectory_control(
+  engine = "gp",
+  gp_kernel = "matern32",
+  gp_basis_k = NULL
+)
+```
+
+Setting `gp_basis_k` requests the Hilbert-space approximation exposed by
+`brms::gp(k = ...)`. The latent function is represented with a finite basis,
+reducing the cost of larger fits.
+
+```{r approximate-control}
+approximate_gp <- trajectory_control(
+  engine = "gp",
+  gp_kernel = "matern32",
+  gp_basis_k = 20
+)
+```
+
+The basis dimension is not a universal tuning constant. Too few functions can
+erase real temporal structure; more functions cost more. A scientific analysis
+should check whether conclusions are stable across defensible basis dimensions
+and, when feasible, against an exact fit.
+
+# Posterior fitting is only useful when it behaves
+
+`brms` uses Stan to sample the posterior. A returned model object is not proof
+that the posterior was explored adequately. LEVAiM reports:
+
+- maximum R-hat;
+- minimum bulk and tail effective sample sizes;
+- divergent transitions;
+- a combined convergence gate.
+
+The POC gate requires R-hat no greater than 1.01, bulk and tail ESS of at least
+400, and zero divergences. Failure means refit or revise the model before
+interpreting trajectories. Increasing `adapt_delta` can address occasional
+divergences, but persistent failures call for prior or model reconsideration.
+
+# Derivatives answer local questions
+
+A fitted value asks, “what level does the trajectory have here?” A derivative
+asks, “how quickly is it changing here?” For GP fits,
+`trajectory_derivatives()` differentiates every posterior fitted curve and then
+summarizes those rates.
+
+```{r derivative-api, eval = FALSE}
+rates <- trajectory_derivatives(
+  gp_fit,
+  time_values = seq(0, 12, by = 0.25),
+  draws = 500,
+  level = 0.95
+)
+```
+
+The output includes the posterior mean derivative, credible interval,
+`P(derivative > 0)`, and a pointwise sign label. A fitted rise followed by a fall
+does not guarantee that every local derivative excludes zero. Nor does every
+trajectory need to contain an interior peak or valley.
+
+# From one curve to biological evidence
+
+The shared LEVAiM sequence is deliberately explicit:
+
+```{r workflow-api, eval = FALSE}
+spec <- model_spec(
+  response = assay_feature("taxa", feature),
+  subject = subject_var("subject"),
+  time = time_var("ageMonths"),
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure"))
+)
+
+mf <- model_frame(
+  ds,
+  trajectory(spec, varying_trajectory("feeding_4mo")),
+  control = trajectory_control(
+    engine = "gp",
+    gp_kernel = "matern32",
+    chains = 4,
+    iter = 2000,
+    adapt_delta = 0.99
+  )
+)
+
+fit <- fit_trajectory(mf)
+results <- trajectory_results(fit)
+effects <- trajectory_effects(fit)
+rates <- trajectory_derivatives(fit)
+moments <- trajectory_moments(fit)
+```
+
+The GP describes trajectories conditional on that specification. Biological
+evidence still depends on the contrast being asked, the exposure definition,
+temporal support, multiplicity, diagnostics, and whether the observational
+design can distinguish association from mechanism.
+
+# Words you will see in the output
+
+| Term | Meaning in this workflow |
+| --- | --- |
+| Observation | One measured response from one sample at one recorded time |
+| Latent trajectory | The unobserved smooth function the model is trying to learn |
+| Prior | Which trajectories and parameter values were plausible before using these observations |
+| Posterior | Which trajectories remain plausible after combining the prior with the observations |
+| Posterior mean | The average fitted trajectory across posterior draws |
+| Credible interval | A posterior uncertainty interval for a fitted value, derivative, or summary |
+| Kernel | The rule describing how strongly function values at different times co-vary |
+| Length scale | The temporal distance over which the trajectory remains strongly related |
+| GP marginal SD | How much the latent trajectory is allowed to vary around its mean |
+| Posterior draw | One jointly plausible realization of the model parameters and trajectory |
+
+A 95% credible interval is a statement about the fitted posterior under the
+specified model. It is not a guarantee that 95% of future observations will lie
+inside that interval, and it does not turn an observational association into a
+causal effect.
+
+# A compact reading checklist
+
+Before believing a GP trajectory, ask:
+
+1. Does the response family match the measurement and its boundaries?
+2. Was the exposure derived from a biologically defensible window?
+3. Which kernel was assumed, and are conclusions robust to reasonable choices?
+4. Does the observed chronology support the region being interpreted?
+5. Did R-hat, ESS, and divergence checks pass?
+6. Are derivative and moment statements supported by posterior intervals?
+7. Is the claim predictive, associational, or mechanistic?
+
+Continue with `vignette("gaussian-processes", package = "LEVAiM")` for the
+executed full-cohort Backhed workflow.

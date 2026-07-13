@@ -27,7 +27,9 @@ Config/testthat/edition: 3
 Imports: 
     cli,
     data.table,
+    ggplot2,
     mgcv,
+    rlang,
     splines
 Config/roxygen2/version: 8.0.0
 VignetteBuilder: knitr

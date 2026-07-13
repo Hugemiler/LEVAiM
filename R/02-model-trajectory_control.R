@@ -8,7 +8,10 @@
 #' backend-specific fitting options.
 #'
 #' @param engine Modeling engine. One of `"spline"` or `"gp"`.
-#' @param family Model family. For now, usually `"gaussian"`.
+#' @param family Response family. Both engines support `"gaussian"`,
+#'   `"binomial"`, and `"beta"`. Binomial responses must contain exactly 0 and 1. Beta
+#'   responses must lie strictly inside `(0, 1)`; boundary values are rejected
+#'   rather than transformed implicitly.
 #' @param transform Response transformation. One of `"identity"`, `"log1p"`,
 #'   or `"log10p"`.
 #' @param na_action Missing-data handling. `"explicit"` keeps missing
@@ -19,10 +22,16 @@
 #'   uses `splines::ns()`, and `"cubic"` uses `splines::bs()`.
 #' @param spline_method Fitting method for `mgcv::gam()`, usually `"REML"` or
 #'   `"ML"`.
-#' @param gp_kernel Gaussian process kernel. Placeholder for GP backend.
+#' @param gp_kernel Gaussian-process covariance kernel. One of `"matern32"`,
+#'   `"rbf"`, `"matern52"`, or `"exponential"`.
+#' @param gp_basis_k Optional number of Hilbert-space basis functions. `NULL`
+#'   fits an exact GP; an integer of at least 5 requests the scalable
+#'   approximate GP implemented by `brms::gp(k = ...)`.
 #' @param chains Number of MCMC chains for GP/brms backend.
 #' @param iter Number of MCMC iterations for GP/brms backend.
 #' @param cores Number of cores for GP/brms backend.
+#' @param adapt_delta Target acceptance probability for GP/Stan sampling.
+#' @param max_treedepth Maximum GP/Stan tree depth.
 #' @param seed Optional random seed.
 #' @param sparse_min_n Minimum count for a categorical annotation level. Levels
 #'   with fewer samples are collapsed to `sparse_other_level`.
@@ -42,10 +51,13 @@ trajectory_control <- function(
     spline_k = 10L,
     spline_basis = c("gam", "natural", "cubic"),
     spline_method = c("REML", "ML", "GCV.Cp"),
-    gp_kernel = c("matern32", "rbf"),
+    gp_kernel = c("matern32", "rbf", "matern52", "exponential"),
+    gp_basis_k = NULL,
     chains = 4L,
     iter = 2000L,
     cores = 1L,
+    adapt_delta = 0.95,
+    max_treedepth = 12L,
     seed = NULL,
     sparse_min_n = 2L,
     sparse_other_level = "Other",
@@ -68,9 +80,12 @@ trajectory_control <- function(
     spline_basis = spline_basis,
     spline_method = spline_method,
     gp_kernel = gp_kernel,
+    gp_basis_k = gp_basis_k,
     chains = chains,
     iter = iter,
     cores = cores,
+    adapt_delta = adapt_delta,
+    max_treedepth = max_treedepth,
     seed = seed,
     sparse_min_n = sparse_min_n,
     sparse_other_level = sparse_other_level,
@@ -91,9 +106,13 @@ trajectory_control <- function(
       ),
       gp = list(
         kernel = gp_kernel,
+        basis_k = if (is.null(gp_basis_k)) NULL else as.integer(gp_basis_k),
+        approximation = if (is.null(gp_basis_k)) "exact" else "hsgp",
         chains = as.integer(chains),
         iter = as.integer(iter),
-        cores = as.integer(cores)
+        cores = as.integer(cores),
+        adapt_delta = adapt_delta,
+        max_treedepth = as.integer(max_treedepth)
       ),
       seed = seed,
       annotations = list(
@@ -120,17 +139,31 @@ validate_trajectory_control <- function(
     spline_basis,
     spline_method,
     gp_kernel,
+    gp_basis_k,
     chains,
     iter,
     cores,
+    adapt_delta,
+    max_treedepth,
     seed,
     sparse_min_n,
     sparse_other_level,
     missing_level,
     drop_invariant_covariates
 ) {
-  if (!is.character(family) || length(family) != 1L) {
-    cli::cli_abort("`family` must be a character scalar.")
+  if (!is.character(family) || length(family) != 1L ||
+      !family %in% c("gaussian", "binomial", "beta")) {
+    cli::cli_abort("`family` must be one of `gaussian`, `binomial`, or `beta`.")
+  }
+
+  if (!is.null(gp_basis_k) &&
+      (!is.numeric(gp_basis_k) || length(gp_basis_k) != 1L ||
+       is.na(gp_basis_k) || gp_basis_k < 5L)) {
+    cli::cli_abort("`gp_basis_k` must be `NULL` or a numeric scalar >= 5.")
+  }
+
+  if (family != "gaussian" && transform != "identity") {
+    cli::cli_abort("Non-Gaussian families currently require `transform = 'identity'`.")
   }
 
   if (!is.numeric(spline_k) || length(spline_k) != 1L || spline_k < 3L) {
@@ -151,6 +184,16 @@ validate_trajectory_control <- function(
 
   if (!is.numeric(cores) || length(cores) != 1L || cores < 1L) {
     cli::cli_abort("`cores` must be a positive numeric scalar.")
+  }
+
+  if (!is.numeric(adapt_delta) || length(adapt_delta) != 1L ||
+      adapt_delta <= 0 || adapt_delta >= 1) {
+    cli::cli_abort("`adapt_delta` must lie strictly between 0 and 1.")
+  }
+
+  if (!is.numeric(max_treedepth) || length(max_treedepth) != 1L ||
+      max_treedepth < 1L) {
+    cli::cli_abort("`max_treedepth` must be a positive numeric scalar.")
   }
 
   if (!is.null(seed) && (!is.numeric(seed) || length(seed) != 1L)) {
@@ -202,9 +245,15 @@ print.levaim_trajectory_control <- function(x, ...) {
   if (x$engine == "gp") {
     cli::cli_h2("GP controls")
     cli::cli_text("Kernel: {.field {x$gp$kernel}}")
+    cli::cli_text("Approximation: {.field {x$gp$approximation}}")
+    if (!is.null(x$gp$basis_k)) {
+      cli::cli_text("Hilbert-space basis functions: {x$gp$basis_k}")
+    }
     cli::cli_text("Chains: {x$gp$chains}")
     cli::cli_text("Iterations: {x$gp$iter}")
     cli::cli_text("Cores: {x$gp$cores}")
+    cli::cli_text("Adapt delta: {x$gp$adapt_delta}")
+    cli::cli_text("Maximum tree depth: {x$gp$max_treedepth}")
   }
 
   if (!is.null(x$seed)) {

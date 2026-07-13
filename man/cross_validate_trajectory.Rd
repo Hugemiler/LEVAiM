@@ -9,7 +9,7 @@ cross_validate_trajectory(
   v = 5L,
   group = NULL,
   seed = NULL,
-  metrics = c("rmse", "mae"),
+  metrics = NULL,
   repeats = 1L,
   keep_predictions = TRUE,
   ...
@@ -24,7 +24,8 @@ cross_validate_trajectory(
 
 \item{seed}{Optional random seed.}
 
-\item{metrics}{Metrics to compute. Currently `"rmse"` and `"mae"`.}
+\item{metrics}{Metrics to compute. Defaults to `"rmse"` and `"mae"` for
+Gaussian/beta models and `"log_loss"` and `"brier"` for binomial models.}
 
 \item{repeats}{Number of repeated grouped CV partitions.}
 

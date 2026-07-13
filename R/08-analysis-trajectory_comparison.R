@@ -177,6 +177,10 @@ print.levaim_trajectory_comparison <- function(x, ...) {
 
 #' @keywords internal
 normalize_comparison_fits <- function(fits) {
+  if (inherits(fits, "levaim_fit")) {
+    fits <- list(fit_1 = fits)
+  }
+
   if (inherits(fits, "levaim_feature_tests")) {
     if (is.null(fits$fits)) {
       cli::cli_abort(
@@ -232,7 +236,7 @@ extract_comparison_units <- function(
     effects <- trajectory_effects(fit, n = n, time_values = time_values)
 
     derivatives <- NULL
-    if (isTRUE(include_derivatives) && fit$engine == "spline") {
+    if (isTRUE(include_derivatives) && fit$engine %in% c("spline", "gp")) {
       derivatives <- trajectory_derivatives(fit, n = n, time_values = time_values)
     }
 

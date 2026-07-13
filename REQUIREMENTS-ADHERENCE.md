@@ -26,6 +26,7 @@ documentation, and approval so checkpoint claims remain auditable.
   `vignettes/model-specification.Rmd`, `vignettes/spline-fitting.Rmd`,
   `vignettes/validation.Rmd`, `vignettes/feature-testing.Rmd`,
   `vignettes/feeding-4mo-trajectories.Rmd`,
+  `vignettes/response-families.Rmd`,
   `vignettes/trajectory-analysis.Rmd`, and
   `vignettes/gaussian-processes.Rmd`.
 - Spline/GAM fitting: `trajectory_control(engine = "spline")`,
@@ -40,8 +41,10 @@ documentation, and approval so checkpoint claims remain auditable.
   `exposure_transition()`. `group_effect(role = ...)` lets `model_frame()`
   validate subject-static, time-varying, sample-level, and derived-exposure
   covariate usage.
-- Per-feature workflow: `test_assay_features()` fits one model per assay
-  feature, collates trajectory-level p-values, and applies FDR correction. The
+- Per-feature workflow: `test_assay_features()` fits one trajectory model per
+  assay feature, tests explicit biological levels over a declared inference
+  grid using covariance-calibrated maximum fitted contrasts, localizes the
+  strongest separation, and applies FDR correction. The
   vignettes frame this as an all-feature screen before known or unexpected
   signals are interpreted.
 - Trajectory comparison workflow: `compare_trajectories()` compares retained
@@ -58,8 +61,8 @@ documentation, and approval so checkpoint claims remain auditable.
 - Effect summaries and plots: `trajectory_effects()` and
   `plot_trajectory_effects()`.
 - Derivative extraction: `trajectory_derivatives()` estimates finite-difference
-  local rates of change for spline trajectory effects without making automatic
-  peak/valley claims.
+  local rates for spline fitted effects and GP posterior fitted trajectories
+  without making automatic peak/valley claims.
 - Serialization: `save_levaim_object()` and `load_levaim_object()` round-trip
   recognized LEVAiM objects through RDS files.
 - API lifecycle: `API-LIFECYCLE.md` plus signature and return-class tests in
@@ -69,8 +72,8 @@ documentation, and approval so checkpoint claims remain auditable.
   `tests/testthat/test-api-lifecycle.R`,
   `tests/testthat/test-validation-and-effects.R`, and
   `tests/testthat/test-gp-brms-backend.R`.
-- Current verification: `devtools::test()` passes with 208 passing checks and
-  one expected skip for the missing-`brms` branch when `brms` is installed;
+- Current verification: `devtools::test()` passes, including fitted RBF and
+  Matern32 GP paths, with one expected skip for the missing-`brms` branch;
   `R CMD check --no-manual` passes with one known NOTE for long example file
   names.
 
@@ -80,28 +83,29 @@ documentation, and approval so checkpoint claims remain auditable.
 | --- | --- | --- | --- | --- |
 | 0.3.1.1 | Package skeleton | Documented | Standard R package layout exists. | Approval signoff. |
 | 0.3.1.2 | Data parsing and preprocessing pipeline | Tested + documented | MetaPhlAn/HUMAnN parsers, `LongitudinalDataset()`, sparse/missing annotation preprocessing, input-preparation vignette, model-specification vignette, Backhed example-file test. | Approval signoff. |
-| 0.3.1.3 | GP regression with RBF/Matern32 kernels | Tested | `engine = "gp"` is wired to `brms::brm()` with `gp_kernel = "rbf"` mapped to `cov = "exp_quad"` and `gp_kernel = "matern32"` mapped to `cov = "matern32"`; formula behavior, missing-dependency behavior, and a fitted Matern32 `brms` smoke test are covered in `test-gp-brms-backend.R`. | Approval signoff; optionally add a fitted RBF smoke test for symmetric kernel coverage. |
+| 0.3.1.3 | GP regression with RBF/Matern32 kernels | Tested | `engine = "gp"` is wired to `brms::brm()` with fitted smoke tests for both RBF (`exp_quad`) and Matern32 covariances. | Approval signoff. |
 | 0.3.1.4 | Grouped CV | Tested | `cross_validate_trajectory()` is engine-generic and supports grouped folds, repeated CV, aggregate summaries, and held-out prediction tables. Fitted GP grouped CV is covered in `test-gp-brms-backend.R` with held-out subjects and `allow_new_levels = TRUE`; grouped split behavior is also tested on spline model frames. | Approval signoff. |
 | 0.3.1.5 | Prediction | Tested | GP `predict.levaim_fit()` dispatches through fitted `brms` objects; `test-gp-brms-backend.R` fits a GP and checks predictions. | Approval signoff. |
-| 0.3.1.6 | Effect plots | Tested | `trajectory_effects()` and `plot_trajectory_effects()` support GP fits through fitted-value summaries; `test-gp-brms-backend.R` checks GP effect output columns and row counts after fitting. | Approval signoff; add explicit plot smoke test if required by reviewer. |
-| 0.3.1.7 | Stable API | Prototype | Shared model specification/control API includes `engine = "gp"`; GP lifecycle remains prototype while broader GP coverage and reviewer feedback are pending. | Freeze GP-facing function signatures after fitted backend review. |
+| 0.3.1.6 | Effect plots | Tested | `trajectory_effects()` and `plot_trajectory_effects()` are both exercised on fitted GP models. | Approval signoff. |
+| 0.3.1.7 | Stable API | Tested + documented | `API-LIFECYCLE.md` freezes the 0.1.x spline and GP contracts; signature tests guard exported formals and return classes. The GP surface includes families, exact/approximate controls, kernels, diagnostics, prediction, interpretation, and serialization. | Approval signoff. |
 
-**Checkpoint summary:** 6/7 are tested or documented, and 1/7 remains prototype
-pending GP API freeze. No items are marked approved.
+**Checkpoint summary:** 7/7 are tested or documented and ready for acceptance
+review. No items are marked approved.
 
 ## D0.3.2 Gaussian Processes End-of-Development Checkpoint
 
 | ID | Requirement | Current status | Evidence | Gap before checkpoint credit |
 | --- | --- | --- | --- | --- |
-| 0.3.2.1 | Sparse GPs | Not started | No sparse GP implementation found. | Add sparse approximation strategy and tests. |
-| 0.3.2.2 | Multi-feature fitting | Prototype | Interpreted as single-response modeling with multiple covariate features. GP formula compilation supports multiple covariates; fitted multi-covariate GP examples are not yet covered. | Add fitted multi-covariate GP examples/tests. |
-| 0.3.2.3 | Classification + beta family | Not started | The brms GP backend currently gates execution to `family = "gaussian"`. | Add response-family support and examples/tests. |
-| 0.3.2.4 | Additional kernels supported | Prototype | The brms GP backend supports the starting RBF/Matern32 set; additional kernels remain future work. | Add implemented kernels beyond the starting set. |
-| 0.3.2.5 | Interpretability summaries | Prototype | `trajectory_results()` supports GP fits with kernel/covariance metadata and is covered by a fitted `brms` smoke test; `compare_trajectories()` can compare GP fitted effects but derivative summaries remain spline-only and GP-specific interpretation is not yet rich enough for end-development credit. | Add richer GP interpretability summaries beyond fitted-effect comparisons and kernel metadata. |
-| 0.3.2.6 | High-level longitudinal microbiome workflows | Prototype | Functional real-file vignettes cover data loading, model specification, spline fitting, validation, feature testing, trajectory analysis, and GP setup. No fitted GP workflow vignette or GP-scale batch wrapper exists. | Add GP workflow wrappers/vignettes. |
-| 0.3.2.7 | Serialization | Implemented | `save_levaim_object()` and `load_levaim_object()` support LEVAiM fits, results, model frames, datasets, specifications, trajectories, controls, and CV objects. Spline fit/result round trips are tested. | Add fitted GP serialization round-trip test before GP end-development credit. |
+| 0.3.2.1 | Sparse GPs | Tested + documented | `gp_basis_k` requests the Hilbert-space approximate GP implemented by `brms::gp(k = ...)`; `NULL` retains the exact GP. Formula and fitted approximate-GP tests cover the path, and the GP vignette documents its approximation semantics and sensitivity obligation. | Approval signoff. |
+| 0.3.2.2 | Multi-feature fitting | Tested + documented | Interpreted as single-response modeling with multiple covariate features. A fitted GP test includes categorical and continuous covariates, and the GP vignette documents the shared specification workflow. | Approval signoff. |
+| 0.3.2.3 | Classification + beta family | Tested + documented | Fitted GP tests cover Bernoulli and beta likelihoods with response-scale predictions. The same explicit 0/1 and open-interval beta policy is enforced across engines and documented in `RESPONSE-FAMILIES.md` and the GP vignette. | Approval signoff. |
+| 0.3.2.4 | Additional kernels supported | Tested + documented | Beyond the starting RBF/Matern32 set, Matern52 and exponential/Matern12 kernels compile through native `brms` covariance support; a fitted approximate exponential-GP test exercises an additional kernel end to end. | Approval signoff. |
+| 0.3.2.5 | Interpretability summaries | Tested + documented | `trajectory_results()` reports kernel and sampler diagnostics; `trajectory_derivatives()` differentiates posterior fitted trajectories with credible intervals and sign probabilities; `trajectory_moments()` and `compare_trajectory_moments()` use posterior fitted draws. The executable `gaussian-processes` vignette fits the complete aligned Backhed cohort, enforces a diagnostic gate, and demonstrates prediction, plotting, derivatives, moments, and serialization. | Approval signoff. |
+| 0.3.2.6 | High-level longitudinal microbiome workflows | Partial | The executable GP vignette fits the complete aligned Backhed cohort through parse, specification, compilation, diagnostics, prediction, posterior derivatives, moments, plotting, and serialization. The shared high-level API is complete for single-response follow-up; `test_assay_features()` remains spline-only for assay-scale batch inference. | Define and implement the computational and multiplicity contract for GP assay-wide batch inference. |
+| 0.3.2.7 | Serialization | Tested + documented | Schema-1 envelopes record package version, class, and creation time; loaders reject unsupported future schemas and retain compatibility with legacy raw-object RDS files. Fitted spline and GP post-load prediction is tested. | Approval signoff. |
 
-**Checkpoint summary:** 0/7 are ready for end-of-development credit. No items
+**Checkpoint summary:** 6/7 are tested and documented; 1/7 is partial because
+GP assay-wide batch inference remains outside the frozen POC contract. No items
 are marked approved.
 
 ## D0.3.3 Spline Regression Mid-Development Checkpoint
@@ -126,21 +130,21 @@ marked approved.
 | 0.3.4.1 | Additive models/GAM support | Tested + documented | `mgcv::gam()` backend, spline pipeline test, README, and the `spline-fitting` vignette. | Approval signoff. |
 | 0.3.4.2 | Automatic smoothness selection | Tested + documented | Spline backend uses `method = "REML"` by default and `select = TRUE`; `spline_k` is capped by observed time points and spline controls are documented. | Approval signoff. |
 | 0.3.4.3 | Multi-feature fitting | Tested + documented | Interpreted as single-response modeling with multiple covariate features. `model_spec(covariates = list(...))` supports categorical, continuous, and random-effect covariates; `varying_trajectory(by = c(...))` supports multiple declared trajectory modifiers; tests and the `model-specification` vignette cover this workflow. | Approval signoff. |
-| 0.3.4.4 | Classification + beta family | Prototype | `family` control is accepted, but no classification/beta workflow or tests exist. | Validate supported families and add tests/examples. |
+| 0.3.4.4 | Classification + beta family | Tested + documented | Spline binomial and beta models are fitted in tests. Model frames enforce 0/1 binomial responses and open-interval beta responses; zeros/ones are rejected rather than transformed implicitly. Grouped CV defaults to log loss/Brier score for binomial models. `RESPONSE-FAMILIES.md` fixes the boundary policy, and the `response-families` vignette demonstrates a real-data two-part occurrence/positive-abundance analysis. Explicit hurdle or zero/one-inflated likelihoods remain outside the current checkpoint scope. | Approval signoff. |
 | 0.3.4.5 | Derivative extraction | Tested + documented | `trajectory_derivatives()` estimates finite-difference local rates of change for shared and varying spline trajectories; tests cover output shape, grouping columns, custom time grids, and unsupported GP engines. | Approval signoff; add GP posterior derivative support later if required. |
-| 0.3.4.6 | Interpretability summaries | Tested + documented | `trajectory_results()` extracts fit metrics and smooth tables; `trajectory_derivatives()` summarizes local rates of change; `compare_trajectories()` returns feature-pair trajectory evidence as a long table with correlations, distances, derivative correlations, descriptive p-value labels, q-values, support flags, biological hypothesis text, and limitations. `trajectory_distance_matrix()` derives heatmap-ready matrices from that table. Tests cover table shape, metadata-level matrices, windows, non-inferential mode, and unavailable-input errors. | Approval signoff; add subject-aware permutation inference and plotting helpers if required by reviewer. |
-| 0.3.4.7 | High-level microbiome workflows | Tested + documented | Functional real-file vignettes now cover data loading, assay-wide model specification, time-varying exposure derivation, all-feature per-feature testing, a feeding-around-4-months proof-of-concept, screen-derived spline follow-up, grouped validation, trajectory comparison, and GP setup; `test_assay_features()` provides an anpan_batch-style middle-layer workflow for all-feature assay testing with FDR correction; `compare_trajectories()` adds the downstream trajectory-comparison workflow for retained screen hits and metadata-level heatmap inputs. | Approval signoff; broaden workflow wrappers for additional common analysis patterns. |
+| 0.3.4.6 | Interpretability summaries | Tested + documented | `trajectory_results()` extracts fit metrics and smooth tables; `trajectory_derivatives()` summarizes local rates; `trajectory_contrasts()` localizes group differences; `trajectory_moments()` reports level, AUC, temporal variation, timing, trend, velocity, and conditional turning points with uncertainty; `compare_trajectory_moments()` returns long draw-based contrast tables; ggplot engines cover curves, localized contrasts, moments, and moment differences; feature-pair evidence and distance matrices remain available. | Approval signoff. |
+| 0.3.4.7 | High-level microbiome workflows | Tested + documented | Functional real-file vignettes cover data loading, assay-wide model specification, time-varying exposure derivation, all-feature per-feature testing, the feeding-around-4-months proof of concept, spline follow-up, grouped validation, trajectory comparison, and a fitted full-cohort GP follow-up; `test_assay_features()` provides an anpan_batch-style spline workflow with FDR correction; `compare_trajectories()` produces downstream trajectory-comparison and heatmap inputs. | Approval signoff; GP assay-wide batch inference remains the explicit D0.3.2.6 extension. |
 | 0.3.4.8 | Serialization | Tested + documented | `save_levaim_object()` and `load_levaim_object()` serialize LEVAiM fits and results through RDS; spline fit/result round trips and post-load prediction are tested. | Approval signoff. |
 
-**Checkpoint summary:** 7/8 are tested and documented, 1/8 is prototype. No
-items are marked approved.
+**Checkpoint summary:** 8/8 are tested and documented. The checkpoint is ready
+for acceptance review; no items are marked approved.
 
 ## Recommended Next Implementation Order
 
-1. Review and sign off D0.3.3 spline mid-development evidence.
-2. Add classification and beta-family validation/examples.
-3. Add subject-aware permutation inference for trajectory comparisons.
-4. Add fitted GP serialization round-trip coverage.
-5. Add heatmap plotting helpers backed by `trajectory_distance_matrix()`.
-6. Expand GP end-development work: sparse GP strategy, fitted multi-covariate
-   GP examples, additional kernels, richer interpretability, and GP workflows.
+1. Review and sign off D0.3.1 and D0.3.3 mid-development evidence.
+2. Review and sign off D0.3.4 spline later-checkpoint evidence.
+3. Review the six completed D0.3.2 GP end-development rows.
+4. Define whether GP assay-wide batch inference is required for D0.3.2.6 or is
+   a post-POC scalability extension.
+5. Add subject-aware inference for fitted-trajectory comparisons as analytical
+   hardening after the acceptance-candidate release.

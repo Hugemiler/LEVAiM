@@ -15,6 +15,7 @@ load_levaim_object(file, ...)
 The deserialized LEVAiM object.
 }
 \description{
-Reads a LEVAiM object saved with [save_levaim_object()] and validates that
-the recovered object still has a recognized LEVAiM class.
+Reads a LEVAiM object saved with [save_levaim_object()], validates its schema
+and class, and attaches the envelope metadata as `levaim_serialization`.
+Legacy raw-object RDS files remain readable as schema version 0.
 }

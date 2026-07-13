@@ -13,6 +13,12 @@ test_assay_features(
   covariates = list(),
   design = naive_trajectory(),
   control = trajectory_control(),
+  hypothesis = c("overall_trajectory", "trajectory_difference", "covariate_effect"),
+  test_covariate = NULL,
+  test_levels = NULL,
+  test_time_values = NULL,
+  test_simulations = 2000L,
+  test_seed = 1L,
   p_adjust_method = "BH",
   keep_fits = FALSE,
   error_action = c("continue", "stop")
@@ -37,6 +43,25 @@ in the assay.}
 `varying_trajectory()`.}
 
 \item{control}{A `levaim_trajectory_control`.}
+
+\item{hypothesis}{Hypothesis tested for every feature. One of
+`"overall_trajectory"`, `"trajectory_difference"`, or
+`"covariate_effect"`.}
+
+\item{test_covariate}{Covariate tested by `"covariate_effect"`. For
+`"trajectory_difference"`, this may name the focal trajectory modifier.}
+
+\item{test_levels}{Optional biological trajectory levels included in a
+`"trajectory_difference"` test. Omitted levels remain in the fitted model
+but do not contribute to the omnibus contrast.}
+
+\item{test_time_values}{Optional numeric grid for trajectory-difference
+inference. Defaults to 100 points over the observed time domain.}
+
+\item{test_simulations}{Number of Gaussian coefficient simulations used to
+calibrate the maximum standardized trajectory-contrast statistic.}
+
+\item{test_seed}{Seed used for contrast-test simulation.}
 
 \item{p_adjust_method}{Method passed to [stats::p.adjust()].}
 

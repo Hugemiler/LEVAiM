@@ -78,8 +78,25 @@ trajectory_results_gp <- function(fit) {
 
   kernel_table <- data.frame(
     kernel = mf$control$gp$kernel,
-    brms_covariance = brms_gp_covariance(mf$control$gp$kernel)
+    brms_covariance = brms_gp_covariance(mf$control$gp$kernel),
+    approximation = mf$control$gp$approximation,
+    basis_k = if (is.null(mf$control$gp$basis_k)) NA_integer_ else mf$control$gp$basis_k
   )
+  backend_summary <- summary(fit$fit)
+  diagnostics <- gp_fit_diagnostics(fit$fit, backend_summary)
+  fixed <- backend_summary$fixed
+  parametric_table <- if (is.null(fixed) || nrow(fixed) == 0L) {
+    data.frame()
+  } else {
+    data.frame(
+      term = rownames(fixed),
+      estimate = as.numeric(fixed[, "Estimate"]),
+      rhat = if ("Rhat" %in% colnames(fixed)) as.numeric(fixed[, "Rhat"]) else NA_real_,
+      bulk_ess = if ("Bulk_ESS" %in% colnames(fixed)) as.numeric(fixed[, "Bulk_ESS"]) else NA_real_,
+      tail_ess = if ("Tail_ESS" %in% colnames(fixed)) as.numeric(fixed[, "Tail_ESS"]) else NA_real_,
+      row.names = NULL
+    )
+  }
 
   structure(
     list(
@@ -93,15 +110,80 @@ trajectory_results_gp <- function(fit) {
       n = nrow(mf$data),
       r_sq = r_sq,
       deviance_explained = r_sq,
-      parametric_terms = data.frame(
-        term = names(fit$fit$beta),
-        estimate = as.numeric(fit$fit$beta)
-      ),
+      parametric_terms = parametric_table,
       smooth_terms = kernel_table,
-      backend_summary = summary(fit$fit)
+      diagnostics = diagnostics,
+      backend_summary = backend_summary
     ),
     class = "levaim_results"
   )
+}
+
+
+#' @keywords internal
+gp_fit_diagnostics <- function(brms_fit, backend_summary = summary(brms_fit)) {
+  matrices <- list(backend_summary$fixed, backend_summary$spec_pars)
+  matrices <- matrices[vapply(
+    matrices,
+    function(x) is.matrix(x) || is.data.frame(x),
+    logical(1)
+  )]
+
+  rhat <- unlist(lapply(matrices, function(x) {
+    if ("Rhat" %in% colnames(x)) x[, "Rhat"] else numeric()
+  }))
+  bulk_ess <- unlist(lapply(matrices, function(x) {
+    if ("Bulk_ESS" %in% colnames(x)) x[, "Bulk_ESS"] else numeric()
+  }))
+  tail_ess <- unlist(lapply(matrices, function(x) {
+    if ("Tail_ESS" %in% colnames(x)) x[, "Tail_ESS"] else numeric()
+  }))
+
+  sampler <- tryCatch(brms::nuts_params(brms_fit), error = function(e) NULL)
+  divergences <- if (is.null(sampler)) {
+    NA_integer_
+  } else {
+    as.integer(sum(
+      sampler$Parameter == "divergent__" & sampler$Value > 0,
+      na.rm = TRUE
+    ))
+  }
+
+  max_rhat <- diagnostic_max(rhat)
+  min_bulk_ess <- diagnostic_min(bulk_ess)
+  min_tail_ess <- diagnostic_min(tail_ess)
+  rhat_ok <- is.finite(max_rhat) && max_rhat <= 1.01
+  ess_ok <- is.finite(min_bulk_ess) && is.finite(min_tail_ess) &&
+    min_bulk_ess >= 400 && min_tail_ess >= 400
+  divergence_ok <- identical(divergences, 0L)
+
+  data.frame(
+    max_rhat = max_rhat,
+    min_bulk_ess = min_bulk_ess,
+    min_tail_ess = min_tail_ess,
+    divergences = divergences,
+    rhat_ok = rhat_ok,
+    ess_ok = ess_ok,
+    divergence_ok = divergence_ok,
+    convergence_ok = rhat_ok && ess_ok && divergence_ok,
+    stringsAsFactors = FALSE
+  )
+}
+
+
+#' @keywords internal
+diagnostic_max <- function(x) {
+  x <- as.numeric(x)
+  x <- x[is.finite(x)]
+  if (length(x) == 0L) NA_real_ else max(x)
+}
+
+
+#' @keywords internal
+diagnostic_min <- function(x) {
+  x <- as.numeric(x)
+  x <- x[is.finite(x)]
+  if (length(x) == 0L) NA_real_ else min(x)
 }
 
 

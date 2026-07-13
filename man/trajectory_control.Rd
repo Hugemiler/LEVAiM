@@ -12,10 +12,13 @@ trajectory_control(
   spline_k = 10L,
   spline_basis = c("gam", "natural", "cubic"),
   spline_method = c("REML", "ML", "GCV.Cp"),
-  gp_kernel = c("matern32", "rbf"),
+  gp_kernel = c("matern32", "rbf", "matern52", "exponential"),
+  gp_basis_k = NULL,
   chains = 4L,
   iter = 2000L,
   cores = 1L,
+  adapt_delta = 0.95,
+  max_treedepth = 12L,
   seed = NULL,
   sparse_min_n = 2L,
   sparse_other_level = "Other",
@@ -26,7 +29,10 @@ trajectory_control(
 \arguments{
 \item{engine}{Modeling engine. One of `"spline"` or `"gp"`.}
 
-\item{family}{Model family. For now, usually `"gaussian"`.}
+\item{family}{Response family. Both engines support `"gaussian"`,
+`"binomial"`, and `"beta"`. Binomial responses must contain exactly 0 and 1. Beta
+responses must lie strictly inside `(0, 1)`; boundary values are rejected
+rather than transformed implicitly.}
 
 \item{transform}{Response transformation. One of `"identity"`, `"log1p"`,
 or `"log10p"`.}
@@ -43,13 +49,22 @@ uses `splines::ns()`, and `"cubic"` uses `splines::bs()`.}
 \item{spline_method}{Fitting method for `mgcv::gam()`, usually `"REML"` or
 `"ML"`.}
 
-\item{gp_kernel}{Gaussian process kernel. Placeholder for GP backend.}
+\item{gp_kernel}{Gaussian-process covariance kernel. One of `"matern32"`,
+`"rbf"`, `"matern52"`, or `"exponential"`.}
+
+\item{gp_basis_k}{Optional number of Hilbert-space basis functions. `NULL`
+fits an exact GP; an integer of at least 5 requests the scalable
+approximate GP implemented by `brms::gp(k = ...)`.}
 
 \item{chains}{Number of MCMC chains for GP/brms backend.}
 
 \item{iter}{Number of MCMC iterations for GP/brms backend.}
 
 \item{cores}{Number of cores for GP/brms backend.}
+
+\item{adapt_delta}{Target acceptance probability for GP/Stan sampling.}
+
+\item{max_treedepth}{Maximum GP/Stan tree depth.}
 
 \item{seed}{Optional random seed.}
 

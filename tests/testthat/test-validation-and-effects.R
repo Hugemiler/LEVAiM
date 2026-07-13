@@ -252,19 +252,19 @@ test_that("trajectory derivatives estimate local rates for shared and varying sp
   expect_equal(custom_derivatives$week, custom_time)
 })
 
-test_that("trajectory derivatives are explicit about unsupported engines", {
+test_that("trajectory derivatives reject unknown engines", {
   gp_fit <- structure(
     list(
       fit = NULL,
       model_frame = make_validation_example(varying = FALSE),
-      engine = "gp"
+      engine = "unknown"
     ),
     class = "levaim_fit"
   )
 
   expect_error(
     trajectory_derivatives(gp_fit, n = 5),
-    "spline fits only"
+    "spline or GP"
   )
 })
 
@@ -283,6 +283,11 @@ test_that("LEVAiM fits and results serialize with RDS round trips", {
 
   expect_s3_class(restored_fit, "levaim_fit")
   expect_s3_class(restored_results, "levaim_results")
+  expect_identical(attr(restored_fit, "levaim_serialization")$schema_version, 1L)
+  expect_identical(
+    attr(restored_fit, "levaim_serialization")$format,
+    "LEVAiM_serialized_object"
+  )
   expect_equal(restored_fit$engine, fit$engine)
   expect_equal(restored_results$response, results$response)
 
@@ -306,6 +311,23 @@ test_that("LEVAiM fits and results serialize with RDS round trips", {
     load_levaim_object(invalid_path),
     "recognized LEVAiM object"
   )
+
+  legacy_path <- tempfile(fileext = ".rds")
+  saveRDS(fit, legacy_path)
+  legacy_fit <- load_levaim_object(legacy_path)
+  expect_s3_class(legacy_fit, "levaim_fit")
+  expect_identical(attr(legacy_fit, "levaim_serialization")$schema_version, 0L)
+
+  future_path <- tempfile(fileext = ".rds")
+  saveRDS(
+    list(
+      format = "LEVAiM_serialized_object",
+      schema_version = 999L,
+      object = fit
+    ),
+    future_path
+  )
+  expect_error(load_levaim_object(future_path), "unsupported LEVAiM serialization schema")
 })
 
 test_that("model frames retain missing categorical annotations as explicit levels", {
@@ -451,9 +473,212 @@ test_that("assay feature testing fits one model per feature and adjusts p-values
   expect_true(all(is.finite(batch$table$p_value)))
   expect_true(all(is.finite(batch$table$p_adjust)))
   expect_equal(batch$table$p_adjust, stats::p.adjust(batch$table$p_value, method = "BH"))
-  expect_true(all(c("assay", "feature", "p_value", "p_adjust", "test_term") %in% colnames(batch$table)))
+  expect_true(all(c(
+    "assay", "feature", "p_value", "p_adjust", "test_term", "hypothesis",
+    "null_hypothesis", "test_method", "full_formula", "reduced_formula"
+  ) %in% colnames(batch$table)))
+  expect_true(all(batch$table$hypothesis == "overall_trajectory"))
+  expect_true(all(batch$table$test_method == "nested_gam_likelihood_ratio_approximate"))
+  expect_true(all(nzchar(batch$table$inference_warning)))
   expect_s3_class(batch$fits$feature_time, "levaim_fit")
   expect_s3_class(batch$results$feature_time, "levaim_results")
+})
+
+test_that("assay feature testing declares trajectory-difference and covariate nulls", {
+  mf <- make_validation_example(varying = TRUE)
+  ds <- LongitudinalDataset(
+    assays = list(taxa = data.frame(
+      feature_a = mf$data$.y,
+      row.names = rownames(mf$data)
+    )),
+    metadata = mf$data[, c("subject", "week", "treatment"), drop = FALSE],
+    time_col = "week",
+    subject_col = "subject"
+  )
+
+  trajectory_test <- test_assay_features(
+    ds,
+    assay = "taxa",
+    subject = "subject",
+    time = "week",
+    covariates = list(group_effect("treatment")),
+    design = varying_trajectory("treatment"),
+    control = trajectory_control(engine = "spline", spline_k = 4),
+    hypothesis = "trajectory_difference",
+    test_covariate = "treatment"
+  )
+  covariate_test <- test_assay_features(
+    ds,
+    assay = "taxa",
+    subject = "subject",
+    time = "week",
+    covariates = list(group_effect("treatment")),
+    control = trajectory_control(engine = "spline", spline_k = 4),
+    hypothesis = "covariate_effect",
+    test_covariate = "treatment"
+  )
+
+  expect_equal(trajectory_test$table$hypothesis, "trajectory_difference")
+  expect_equal(trajectory_test$table$test_method, "global_trajectory_max_contrast")
+  expect_equal(trajectory_test$table$tested_levels, "control;fiber")
+  expect_true(is.finite(trajectory_test$table$max_abs_z))
+  expect_true(is.finite(trajectory_test$table$max_difference_time))
+  expect_equal(covariate_test$table$tested_covariate, "treatment")
+  expect_match(covariate_test$table$null_hypothesis, "treatment", fixed = TRUE)
+  expect_true(is.finite(trajectory_test$table$p_value))
+  expect_true(is.finite(covariate_test$table$p_value))
+})
+
+test_that("global trajectory contrasts detect localized group separation", {
+  set.seed(18)
+  metadata <- expand.grid(
+    subject = sprintf("S%02d", 1:40),
+    week = seq(0, 12, by = 1),
+    KEEP.OUT.ATTRS = FALSE
+  )
+  metadata$group <- ifelse(
+    as.integer(sub("S", "", metadata$subject)) <= 20,
+    "breast",
+    "formula"
+  )
+  metadata$subject <- factor(metadata$subject)
+  metadata$group <- factor(metadata$group)
+  rownames(metadata) <- paste0(metadata$subject, "_", metadata$week)
+  localized <- ifelse(
+    metadata$group == "breast",
+    1.2 * exp(-0.5 * ((metadata$week - 4) / 0.8)^2),
+    0
+  )
+  assay <- data.frame(
+    bifido_like = 0.3 + localized + rnorm(nrow(metadata), sd = 0.18),
+    row.names = rownames(metadata)
+  )
+  ds <- LongitudinalDataset(
+    assays = list(taxa = assay),
+    metadata = metadata,
+    time_col = "week",
+    subject_col = "subject"
+  )
+
+  batch <- test_assay_features(
+    ds,
+    assay = "taxa",
+    subject = "subject",
+    time = "week",
+    covariates = list(group_effect("group")),
+    design = varying_trajectory("group"),
+    control = trajectory_control(engine = "spline", spline_k = 8),
+    hypothesis = "trajectory_difference",
+    test_covariate = "group",
+    test_levels = c("breast", "formula"),
+    keep_fits = TRUE
+  )
+  localized_contrasts <- batch$contrasts$bifido_like
+  strongest <- localized_contrasts[which.max(abs(localized_contrasts$z_value)), ]
+  trajectory_plot <- plot_trajectory_report(
+    batch$fits$bifido_like,
+    levels = c("breast", "formula"),
+    window = c(3, 5)
+  )
+  contrast_plot <- plot_trajectory_contrasts(localized_contrasts)
+
+  expect_lt(batch$table$p_value, 0.01)
+  expect_equal(batch$table$test_method, "global_trajectory_max_contrast")
+  expect_true(batch$table$max_difference_time > 2.5)
+  expect_true(batch$table$max_difference_time < 5.5)
+  expect_true(strongest$estimate > 0)
+  expect_true(all(c("estimate", "std_error", "lower", "upper", "p_value") %in%
+    names(localized_contrasts)))
+  expect_s3_class(trajectory_plot, "ggplot")
+  expect_s3_class(contrast_plot, "ggplot")
+  expect_silent(ggplot2::ggplot_build(trajectory_plot))
+  expect_silent(ggplot2::ggplot_build(contrast_plot))
+})
+
+test_that("assay feature hypotheses reject incompatible declarations", {
+  mf <- make_validation_example(varying = FALSE)
+  ds <- LongitudinalDataset(
+    assays = list(taxa = data.frame(
+      feature_a = mf$data$.y,
+      row.names = rownames(mf$data)
+    )),
+    metadata = mf$data[, c("subject", "week", "treatment"), drop = FALSE],
+    time_col = "week",
+    subject_col = "subject"
+  )
+
+  expect_error(
+    test_assay_features(
+      ds, "taxa", subject = "subject", time = "week",
+      hypothesis = "trajectory_difference"
+    ),
+    "requires `varying_trajectory"
+  )
+  expect_error(
+    test_assay_features(
+      ds, "taxa", subject = "subject", time = "week",
+      covariates = list(group_effect("treatment")),
+      hypothesis = "covariate_effect"
+    ),
+    "requires one `test_covariate"
+  )
+})
+
+test_that("response families validate domains and choose family-aware CV metrics", {
+  set.seed(11)
+  metadata <- expand.grid(
+    subject = factor(sprintf("S%02d", 1:12)),
+    week = c(0, 1, 2, 4),
+    KEEP.OUT.ATTRS = FALSE
+  )
+  rownames(metadata) <- paste0(metadata$subject, "_", metadata$week)
+  probability <- stats::plogis(-1 + 0.5 * metadata$week)
+  assay <- data.frame(
+    binary = stats::rbinom(nrow(metadata), 1, probability),
+    proportion = pmin(pmax(stats::rbeta(nrow(metadata), 2, 5), 0.001), 0.999),
+    invalid_beta = c(0, rep(0.5, nrow(metadata) - 1L)),
+    invalid_binary = c(0.5, rep(1, nrow(metadata) - 1L))
+  )
+  rownames(assay) <- rownames(metadata)
+  ds <- LongitudinalDataset(
+    assays = list(taxa = assay),
+    metadata = metadata,
+    time_col = "week",
+    subject_col = "subject"
+  )
+  make_mf <- function(feature, family) {
+    spec <- model_spec(
+      assay_feature("taxa", feature),
+      subject_var("subject"),
+      time_var("week")
+    )
+    model_frame(
+      ds,
+      trajectory(spec),
+      trajectory_control(engine = "spline", family = family, spline_k = 4)
+    )
+  }
+
+  binary_mf <- make_mf("binary", "binomial")
+  beta_mf <- make_mf("proportion", "beta")
+  binary_fit <- fit_trajectory(binary_mf)
+  beta_fit <- fit_trajectory(beta_mf)
+  binary_cv <- cross_validate_trajectory(binary_mf, v = 3, seed = 1)
+
+  expect_s3_class(binary_fit, "levaim_fit")
+  expect_s3_class(beta_fit, "levaim_fit")
+  expect_setequal(binary_cv$summary$metric, c("log_loss", "brier"))
+  expect_true(all(binary_cv$predictions$predicted >= 0 & binary_cv$predictions$predicted <= 1))
+  expect_error(make_mf("invalid_beta", "beta"), "strictly between 0 and 1")
+  expect_error(make_mf("invalid_binary", "binomial"), "only 0 and 1")
+  expect_error(
+    trajectory_control(family = "beta", transform = "log1p"),
+    "require `transform = 'identity'"
+  )
+  expect_error(
+    cross_validate_trajectory(beta_mf, v = 2, metrics = "brier"),
+    "require `family = 'binomial'"
+  )
 })
 
 test_that("assay feature testing records feature-level errors when requested", {

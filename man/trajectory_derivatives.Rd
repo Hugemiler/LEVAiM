@@ -11,6 +11,8 @@ trajectory_derivatives(
   method = c("finite_difference"),
   level = 0.95,
   type = "response",
+  draws = 500L,
+  seed = 1L,
   ...
 )
 }
@@ -27,13 +29,19 @@ trajectory_derivatives(
 
 \item{type}{Prediction type passed to the backend.}
 
+\item{draws}{Maximum number of posterior draws used for GP derivatives.}
+
+\item{seed}{Sampling seed when GP posterior draws are thinned.}
+
 \item{...}{Additional arguments passed to [trajectory_effects()].}
 }
 \value{
 A data.frame with fitted trajectory effects and derivative columns.
 }
 \description{
-Estimates local rates of change from fitted spline trajectory effects using
-finite differences. This function reports derivative estimates; it does not
+Estimates local rates of change using finite differences. Spline derivatives
+use fitted effects. GP derivatives are calculated for each posterior fitted
+trajectory and summarized with pointwise credible intervals and posterior
+sign probabilities. This function reports derivative estimates; it does not
 infer peaks, valleys, or biological shape classes.
 }

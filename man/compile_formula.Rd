@@ -9,7 +9,8 @@ compile_formula(
   engine = c("spline", "gp"),
   spline_k = NULL,
   spline_basis = "gam",
-  gp_kernel = "matern32"
+  gp_kernel = "matern32",
+  gp_basis_k = NULL
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ compile_formula(
 \item{spline_basis}{Spline basis for spline models.}
 
 \item{gp_kernel}{GP kernel for GP models.}
+
+\item{gp_basis_k}{Optional Hilbert-space GP basis dimension.}
 }
 \value{
 A formula.

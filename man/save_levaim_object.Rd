@@ -17,6 +17,7 @@ save_levaim_object(x, file, ...)
 Invisibly returns `file`.
 }
 \description{
-Serializes a LEVAiM fit, result summary, model frame, or cross-validation
-object with R's native RDS format.
+Serializes a LEVAiM object in a versioned envelope using R's native RDS
+format. The envelope records the serialization schema, package version,
+object class, and creation time.
 }

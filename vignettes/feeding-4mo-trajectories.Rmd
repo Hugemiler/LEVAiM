@@ -128,7 +128,12 @@ length(screen_features)
 ```
 
 The full screen is not evaluated during package vignette builds because it fits
-one model per feature.
+one group-specific trajectory model per feature and calibrates a maximum
+standardized contrast statistic from that model's coefficient covariance. The
+fit uses all observed ages, but inference is prespecified over 3 to 5 months,
+the same biological window used to construct `feeding_4mo`. Missing-exposure
+samples remain in the fit while only the three observed feeding states enter
+the biological test.
 
 ```{r feeding-4mo-screen, eval = FALSE}
 feeding_4mo_tests <- test_assay_features(
@@ -148,6 +153,12 @@ feeding_4mo_tests <- test_assay_features(
     na_action = "explicit",
     sparse_min_n = 5
   ),
+  hypothesis = "trajectory_difference",
+  test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_time_values = seq(3, 5, length.out = 30),
+  test_simulations = 1999,
+  test_seed = 1,
   keep_fits = FALSE,
   error_action = "continue"
 )
@@ -157,38 +168,44 @@ feeding_4mo_tests$table
 
 # What the screen found
 
-The completed 5%-prevalence screen fit 220 taxonomic features. All 220 fits
-completed. The signal was broad:
+The completed 5%-prevalence screen tested 220 taxonomic features. All 220
+completed. The localized omnibus test identified a selective feeding-window
+signal:
 
 ```{r observed-fdr-summary}
 observed_fdr_summary <- data.frame(
   threshold = c("q < 0.10", "q < 0.05", "q < 0.01"),
-  significant_features = c(194, 181, 147),
+  significant_features = c(17, 12, 0),
   screened_features = 220
 )
 
 observed_fdr_summary
 ```
 
-The strongest smooth terms were spread across the derived feeding groups:
+Every row now carries one hypothesis and one null, rather than whichever
+group-specific smooth happened to have the smallest p-value:
 
 ```{r observed-term-summary}
-observed_term_summary <- data.frame(
-  term = c(
-    "s(ageMonths):feeding_4moExclBreastFed",
-    "s(ageMonths):feeding_4moExclFormulaFed",
-    "s(ageMonths):feeding_4moMixed",
-    "s(ageMonths):feeding_4moUnknown"
-  ),
-  significant_features_q05 = c(115, 20, 36, 10)
+observed_test_contract <- data.frame(
+  field = c("hypothesis", "null", "method", "multiplicity"),
+  value = c(
+    "trajectory_difference",
+    "equal fitted trajectories across observed feeding_4mo groups from 3 to 5 months",
+    "maximum standardized contrast calibrated from coefficient covariance",
+    "Benjamini-Hochberg across 220 features"
+  )
 )
 
-observed_term_summary
+observed_test_contract
 ```
 
-This is not a tidy result in which only the obvious infant organisms light up.
-That is the point of the wrapper. The screen is allowed to find broad
-maturation structure, missingness-linked structure, and unexpected taxa.
+The previous 181-feature result was not evidence of a near-global feeding
+effect. It selected the smallest p-value among several smooth terms. The later
+nested-GAM replacement was also unsuitable: its difference smooths could be
+shrunk to zero and its conclusions changed with the spline basis. The current
+test asks directly whether any fitted group contrast separates inside the
+prespecified feeding window while accounting for correlation across the time
+grid.
 
 # Hallmark early colonizers enter after ranking
 
@@ -228,9 +245,8 @@ table(
 )
 ```
 
-In the completed run, 39 significant rows matched the hallmark-colonizer label
-and 142 significant rows did not. That means the expected organisms are present,
-but they are not the whole story.
+The strict q < 0.05 set contains 12 features. Familiar early-life organisms are
+present, but the result is not restricted to a hand-picked colonizer list.
 
 The leading results included familiar infant-associated taxa and organisms more
 suggestive of broader gut maturation:
@@ -238,48 +254,192 @@ suggestive of broader gut maturation:
 ```{r observed-top-hits}
 observed_top_hits <- data.frame(
   feature = c(
-    "Roseburia_faecis",
-    "Bacteroides_uniformis",
-    "Eubacterium_rectale",
-    "Faecalibacterium_prausnitzii",
-    "Bacteroides_ovatus",
-    "Blautia_wexlerae",
-    "Clostridium_sp_AF34_10BH",
-    "Lachnospira_eligens",
-    "Dialister_invisus",
-    "Ruminococcus_bromii",
-    "Fusicatenibacter_saccharivorans",
-    "Anaerostipes_hadrus",
-    "Bifidobacterium_longum"
+    "Sellimonas_intestinalis",
+    "Flavonifractor_plautii",
+    "Granulicatella_SGB8255",
+    "Lacticaseibacillus_rhamnosus",
+    "Actinomyces_SGB17168",
+    "Enterococcus_casseliflavus",
+    "Actinomyces_sp_HMSC065F12",
+    "TM7_phylum_sp_oral_taxon_352",
+    "Robinsoniella_peoriensis",
+    "Actinomyces_sp_ph3",
+    "Citrobacter_freundii",
+    "Streptococcus_lactarius"
   ),
-  leading_term = rep("ExclBreastFed", 13),
-  q_value = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-  deviance_explained = c(
-    0.226,
-    0.527,
-    0.282,
-    0.446,
-    0.484,
-    0.393,
-    0.167,
-    0.228,
-    0.183,
-    0.238,
-    0.289,
-    0.483,
-    0.411
+  p_value = c(rep(0.0005, 8), 0.001, 0.001, 0.0015, 0.0025),
+  q_value = c(rep(0.01375, 8), 0.022, 0.022, 0.030, 0.04583),
+  max_separation_month = c(
+    4.17, 4.38, 4.24, 4.66, 4.03, 4.10, 4.45, 4.03,
+    4.38, 3.83, 3.00, 4.52
   )
 )
 
 observed_top_hits
 ```
 
-`Bacteroides_uniformis`, `Bacteroides_ovatus`, and
-`Bifidobacterium_longum` are reassuring landmarks. But the top of the table is
-also rich in anaerobes and short-chain-fatty-acid-associated organisms. The
-working biological reading is that feeding state around 4 months is associated
-with the tempo and shape of community maturation, not merely with the presence
-or absence of one iconic infant taxon.
+The strongest separations cluster near four months, as they should for this
+question. `Enterococcus`, `Streptococcus`, `Lacticaseibacillus`, and
+`Actinomyces` provide recognizable early-life signals. These remain statistical
+discoveries rather than automatic mechanistic claims.
+
+# Audit the Bifidobacterium positive control
+
+Feeding-associated bifidobacteria are a required biological audit, not a reason
+to preselect the screen. The complete genus pattern is therefore inspected
+after ranking:
+
+```{r observed-bifidobacteria}
+observed_bifidobacteria <- data.frame(
+  feature = c(
+    "Bifidobacterium_breve",
+    "Bifidobacterium_longum",
+    "Bifidobacterium_adolescentis",
+    "Bifidobacterium_pseudocatenulatum",
+    "Bifidobacterium_catenulatum",
+    "Bifidobacterium_dentium",
+    "Bifidobacterium_bifidum"
+  ),
+  p_value = c(0.0055, 0.0855, 0.0865, 0.359, 0.400, 0.423, 0.595),
+  q_value = c(0.0756, 0.4325, 0.4325, 1, 1, 1, 1),
+  max_separation_month = c(4.79, 4.52, 3.62, 5.00, 3.69, 4.17, 5.00)
+)
+
+observed_bifidobacteria
+```
+
+`B. breve` is suggestive after assay-wide FDR correction (q = 0.0756).
+`B. longum` has the expected localized ordering but weaker three-group omnibus
+evidence (p = 0.0855). In the prespecified exclusive-breastfed versus
+exclusive-formula contrast over 3 to 5 months, its covariance-calibrated p-value
+is 0.0355 and its maximum separation occurs near 4.52 months. The fitted
+exclusive-breastfed minus formula difference near four months is approximately
+0.77 log units. Mixed feeding is intermediate, which weakens the three-group
+test without erasing the targeted contrast.
+
+# Summarize trajectory moments
+
+Pointwise contrasts locate separation, but biologists also need a compact
+description of what each curve does. `trajectory_moments()` converts fitted
+curves into a long table of level, AUC, temporal variation, amplitude, timing,
+trend, velocity, and conditional turning-point summaries. The model is still
+fit over all ages; moments are reported inside declared biological windows.
+
+```{r trajectory-moments, eval = FALSE}
+moment_windows <- data.frame(
+  label = c("early", "feeding_window", "later"),
+  start = c(0, 3, 5),
+  end = c(3, 5, 12)
+)
+
+b_longum_feature <- grep(
+  "s__Bifidobacterium_longum$",
+  colnames(taxa),
+  value = TRUE
+)
+
+b_longum_followup <- test_assay_features(
+  ds_4mo,
+  assay = "taxa",
+  features = b_longum_feature,
+  subject = "subject",
+  time = "ageMonths",
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure")
+  ),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(
+    engine = "spline",
+    transform = "log1p",
+    spline_k = 6,
+    na_action = "explicit",
+    sparse_min_n = 5
+  ),
+  hypothesis = "trajectory_difference",
+  test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_time_values = seq(3, 5, length.out = 30),
+  keep_fits = TRUE,
+  error_action = "stop"
+)
+
+b_longum_moments <- trajectory_moments(
+  b_longum_followup$fits[[b_longum_feature]],
+  n = 181,
+  windows = moment_windows,
+  levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  draws = 500,
+  seed = 7
+)
+
+b_longum_moment_comparisons <- compare_trajectory_moments(
+  b_longum_moments,
+  reference = "ExclFormulaFed"
+)
+```
+
+The same fitted objects and DataFrames drive the plotting layer:
+
+```{r moment-plots, eval = FALSE}
+plot_trajectory_report(
+  b_longum_followup$fits[[b_longum_feature]],
+  levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  window = c(3, 5),
+  points = TRUE
+)
+
+b_longum_contrasts <- trajectory_contrasts(
+  b_longum_followup$fits[[b_longum_feature]],
+  time_values = seq(3, 5, length.out = 80),
+  levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed")
+)
+
+plot_trajectory_contrasts(b_longum_contrasts)
+
+plot_trajectory_moments(
+  b_longum_moments,
+  moment = c("mean_level", "auc", "linear_trend", "peak_time"),
+  window = "feeding_window"
+)
+
+plot_trajectory_moment_comparisons(
+  b_longum_moment_comparisons,
+  moment = c("mean_level", "auc", "linear_trend", "peak_value"),
+  window = "feeding_window"
+)
+```
+
+The completed `B. longum` feeding-window report is compact enough to inspect
+directly:
+
+```{r observed-b-longum-moments}
+observed_b_longum_moments <- data.frame(
+  feeding_group = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  mean_level = c(2.160, 1.409, 1.673),
+  mean_level_lower = c(1.900, 0.779, 1.170),
+  mean_level_upper = c(2.421, 1.997, 2.126),
+  auc_3_to_5 = c(4.184, 2.730, 3.241),
+  linear_trend = c(0.191, 0.016, 0.103),
+  peak_time = c(4.991, 4.321, 4.991),
+  peak_status = c(
+    "boundary_only",
+    "interior_supported",
+    "boundary_only"
+  )
+)
+
+observed_b_longum_moments
+```
+
+Exclusive breastfeeding exceeds formula feeding by 0.751 fitted log units in
+mean level (95% simulation interval 0.093 to 1.469; simulation-tail p = 0.028)
+and by 1.455 AUC units (0.180 to 2.845; p = 0.028). Its fitted peak value is
+also higher by 0.884 units (0.170 to 1.588; p = 0.016). These are prespecified
+moment summaries, not independent discoveries; after correcting across every
+moment, window, and feeding comparison in the complete report, their q-values
+are 0.311. Most importantly, the breastfed and mixed maxima occur at the end of
+the 3-to-5 month window and are labeled `boundary_only`. The model supports
+continued rise through the window, not an estimated biological peak at month 5.
 
 # Retain fits for trajectory comparisons
 
@@ -289,7 +449,9 @@ trajectories look coordinated?"
 
 ```{r retained-fits, eval = FALSE}
 follow_up_features <- head(
-  ranked_features$feature[ranked_features$status == "ok"],
+  ranked_features$feature[
+    ranked_features$status == "ok" & ranked_features$p_adjust < 0.05
+  ],
   8
 )
 
@@ -310,28 +472,34 @@ feeding_4mo_followup <- test_assay_features(
     na_action = "explicit",
     sparse_min_n = 5
   ),
+  hypothesis = "trajectory_difference",
+  test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_time_values = seq(3, 5, length.out = 30),
+  test_simulations = 1999,
+  test_seed = 1,
   keep_fits = TRUE,
   error_action = "continue"
 )
 ```
 
-The retained follow-up run used the first eight ranked taxa. The fitted
+The retained follow-up run uses the first eight FDR-significant taxa. The fitted
 features were:
 
 ```{r observed-followup-features}
 observed_followup_features <- data.frame(
   feature = c(
-    "Roseburia_faecis",
-    "Bacteroides_uniformis",
-    "Eubacterium_rectale",
-    "Faecalibacterium_prausnitzii",
-    "Bacteroides_ovatus",
-    "Blautia_wexlerae",
-    "Clostridium_sp_AF34_10BH",
-    "Lachnospira_eligens"
+    "Sellimonas_intestinalis",
+    "Flavonifractor_plautii",
+    "Granulicatella_SGB8255",
+    "Lacticaseibacillus_rhamnosus",
+    "Actinomyces_SGB17168",
+    "Enterococcus_casseliflavus",
+    "Actinomyces_sp_HMSC065F12",
+    "TM7_phylum_sp_oral_taxon_352"
   ),
-  leading_term = rep("ExclBreastFed", 8),
-  deviance_explained = c(0.226, 0.527, 0.282, 0.446, 0.484, 0.393, 0.167, 0.228)
+  q_value = rep(0.01375, 8),
+  max_separation_month = c(4.17, 4.38, 4.24, 4.66, 4.03, 4.10, 4.45, 4.03)
 )
 
 observed_followup_features
@@ -357,15 +525,14 @@ trajectory_comparison <- compare_trajectories(
 head(trajectory_comparison)
 ```
 
-In the completed follow-up, the comparison table had 336 rows across the
+In the corrected follow-up, the comparison table had 336 rows across the
 exclusive-breastfed, exclusive-formula-fed, mixed, and unknown `feeding_4mo`
-groups. Fitted correlations were often strongly positive, but not uniformly
-so. The smallest fitted distances occurred for feature pairs with nearly
-identical fitted shapes inside a feeding-history stratum, such as
-`Bacteroides_uniformis` with `Bacteroides_ovatus` in the unknown stratum and
-`Bacteroides_ovatus` with `Blautia_wexlerae` in the formula-fed stratum. The
-first-eight follow-up set therefore reads as a coordinated maturation block
-rather than a collection of unrelated discoveries.
+groups. The smallest fitted distances in the exclusive-breastfed stratum link
+`Sellimonas_intestinalis` with `Flavonifractor_plautii`; the same pair is also
+nearly coincident in the mixed-feeding stratum. `Sellimonas` and the TM7 feature
+form another close exclusive-breastfeeding pair. These are concrete
+co-trajectory hypotheses for follow-up, not proof that the organisms interact
+or share a mechanism.
 
 The p-values in this table are deliberately labeled as descriptive. The fitted
 grid points are not independent biological observations.
@@ -399,11 +566,10 @@ no longer asking only whether the sample's current feeding state matches the
 sample's current abundance. It asks whether early feeding history stratifies the
 trajectory.
 
-Second, the result is stronger and broader than a hallmark-only story.
-Canonical infant-associated taxa appear, but the strongest results also include
-adult-like anaerobes and community-maturation organisms. That is biologically
-plausible: feeding practice around 4 months can mark a developmental regime,
-not just a single substrate at a single visit.
+Second, the result is selective rather than global. Twelve features support
+feeding-window trajectory separation at q < 0.05, and `B. breve` reaches the
+q < 0.10 tier. `B. longum` supports the targeted exclusive-breastfeeding versus
+formula contrast but not the broader three-group assay-wide discovery claim.
 
 Third, the corrected 3-to-5 month window materially improves exposure support.
 Unknown `feeding_4mo` is no longer the dominant stratum, although exclusive

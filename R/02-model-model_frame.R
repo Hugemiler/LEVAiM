@@ -83,6 +83,8 @@ model_frame <- function(
   data <- preprocessed$data
   traj <- preprocessed$trajectory
 
+  validate_response_family(data$.y, control$family)
+
   spline_k <- NULL
   if (control$engine == "spline") {
     time_col <- traj$spec$time$column
@@ -94,7 +96,8 @@ model_frame <- function(
     engine = control$engine,
     spline_k = spline_k,
     spline_basis = control$spline$basis,
-    gp_kernel = control$gp$kernel
+    gp_kernel = control$gp$kernel,
+    gp_basis_k = control$gp$basis_k
   )
 
   structure(
@@ -107,6 +110,31 @@ model_frame <- function(
     ),
     class = "levaim_model_frame"
   )
+}
+
+
+#' Validate the response domain for a model family
+#'
+#' @keywords internal
+validate_response_family <- function(y, family) {
+  observed <- y[!is.na(y)]
+
+  if (length(observed) == 0L || any(!is.finite(observed))) {
+    cli::cli_abort("The modeled response must contain finite observed values.")
+  }
+
+  if (family == "binomial" && any(!observed %in% c(0, 1))) {
+    cli::cli_abort("`family = 'binomial'` requires a response containing only 0 and 1.")
+  }
+
+  if (family == "beta" && any(observed <= 0 | observed >= 1)) {
+    cli::cli_abort(c(
+      "`family = 'beta'` requires every response value to lie strictly between 0 and 1.",
+      "i" = "Zeros and ones require an explicit zero/one-inflated model; LEVAiM does not transform them implicitly."
+    ))
+  }
+
+  invisible(TRUE)
 }
 
 

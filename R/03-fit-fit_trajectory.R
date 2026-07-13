@@ -44,7 +44,7 @@ fit_trajectory_spline <- function(mf) {
 
     data = mf$data,
 
-    family = mf$control$family,
+    family = spline_family(mf$control$family),
 
     method = mf$control$spline$method,
 
@@ -70,6 +70,18 @@ fit_trajectory_spline <- function(mf) {
 
 }
 
+
+#' @keywords internal
+spline_family <- function(family) {
+  switch(
+    family,
+    gaussian = stats::gaussian(),
+    binomial = stats::binomial(),
+    beta = mgcv::betar(),
+    cli::cli_abort("Unsupported spline family: {.val {family}}.")
+  )
+}
+
 #' @keywords internal
 fit_trajectory_gp <- function(mf) {
   if (!requireNamespace("brms", quietly = TRUE)) {
@@ -79,18 +91,18 @@ fit_trajectory_gp <- function(mf) {
     ))
   }
 
-  if (mf$control$family != "gaussian") {
-    cli::cli_abort("The brms GP backend currently supports `family = 'gaussian'`.")
-  }
-
   fit <- brms::brm(
     formula = mf$formula,
     data = mf$data,
-    family = "gaussian",
+    family = brms_gp_family(mf$control$family),
     chains = mf$control$gp$chains,
     iter = mf$control$gp$iter,
     cores = mf$control$gp$cores,
     seed = mf$control$seed,
+    control = list(
+      adapt_delta = mf$control$gp$adapt_delta,
+      max_treedepth = mf$control$gp$max_treedepth
+    ),
     refresh = 0
   )
 
@@ -111,7 +123,21 @@ brms_gp_covariance <- function(kernel) {
     kernel,
     rbf = "exp_quad",
     matern32 = "matern32",
+    matern52 = "matern52",
+    exponential = "exponential",
     cli::cli_abort("Unknown GP kernel: {.val {kernel}}.")
+  )
+}
+
+
+#' @keywords internal
+brms_gp_family <- function(family) {
+  switch(
+    family,
+    gaussian = brms::brmsfamily("gaussian"),
+    binomial = brms::brmsfamily("bernoulli"),
+    beta = brms::brmsfamily("beta"),
+    cli::cli_abort("Unsupported GP family: {.val {family}}.")
   )
 }
 
@@ -173,7 +199,11 @@ predict.levaim_fit <- function(
     return(as.numeric(fitted[, "Estimate"]))
   }
 
-  predict(object$fit, newdata = newdata, ...)
+  dots <- list(...)
+  if (is.null(dots$type)) {
+    dots$type <- "response"
+  }
+  do.call(stats::predict, c(list(object$fit, newdata = newdata), dots))
 
 }
 
