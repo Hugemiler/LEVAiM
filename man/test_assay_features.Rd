@@ -13,13 +13,22 @@ test_assay_features(
   covariates = list(),
   design = naive_trajectory(),
   control = trajectory_control(),
-  hypothesis = c("overall_trajectory", "trajectory_difference", "covariate_effect"),
+  hypothesis = c("overall_trajectory", "trajectory_difference",
+    "trajectory_shape_difference", "critical_period_level", "occurrence_difference",
+    "positive_abundance_difference", "persistent_level_difference", "level_or_shape",
+    "covariate_effect"),
   test_covariate = NULL,
   test_levels = NULL,
   test_time_values = NULL,
+  test_center_time_values = NULL,
   test_simulations = 2000L,
   test_seed = 1L,
+  null_control = NULL,
+  test_window = NULL,
+  detection_threshold = 0,
+  composition_policy = c("as_is", "renormalize"),
   p_adjust_method = "BH",
+  fdr_level = 0.05,
   keep_fits = FALSE,
   error_action = c("continue", "stop")
 )
@@ -45,25 +54,51 @@ in the assay.}
 \item{control}{A `levaim_trajectory_control`.}
 
 \item{hypothesis}{Hypothesis tested for every feature. One of
-`"overall_trajectory"`, `"trajectory_difference"`, or
+`"overall_trajectory"`, `"trajectory_difference"`,
+`"trajectory_shape_difference"`, `"critical_period_level"`,
+`"occurrence_difference"`, `"positive_abundance_difference"`,
+`"persistent_level_difference"`, `"level_or_shape"`, or
 `"covariate_effect"`.}
 
 \item{test_covariate}{Covariate tested by `"covariate_effect"`. For
 `"trajectory_difference"`, this may name the focal trajectory modifier.}
 
 \item{test_levels}{Optional biological trajectory levels included in a
-`"trajectory_difference"` test. Omitted levels remain in the fitted model
-but do not contribute to the omnibus contrast.}
+group-trajectory test. Omitted levels remain in the fitted model but do
+not contribute to the omnibus contrast.}
 
-\item{test_time_values}{Optional numeric grid for trajectory-difference
-inference. Defaults to 100 points over the observed time domain.}
+\item{test_time_values}{Optional numeric grid for trajectory inference.
+Defaults to 100 points over the observed domain, or a grid inside
+`test_window` for critical-period and component hypotheses.}
+
+\item{test_center_time_values}{Optional numeric grid defining the domain over
+which shape contrasts are centered. `NULL` uses the full observed time
+domain, even when `test_time_values` localizes inference to a narrower
+biological window.}
 
 \item{test_simulations}{Number of Gaussian coefficient simulations used to
 calibrate the maximum standardized trajectory-contrast statistic.}
 
 \item{test_seed}{Seed used for contrast-test simulation.}
 
+\item{null_control}{Null-distribution controls created with
+[trajectory_null_control()]. Used by centered-shape and integrated-level
+trajectory hypotheses.}
+
+\item{test_window}{Optional two-number closed time window. It is required by
+`"critical_period_level"` and may localize occurrence or
+positive-abundance tests.}
+
+\item{detection_threshold}{Numeric abundance above which a feature is
+considered detected for occurrence and positive-abundance analyses.}
+
+\item{composition_policy}{Whether assay values are used `"as_is"` or each
+sample is `"renormalize"`d to total 100 before analysis.}
+
 \item{p_adjust_method}{Method passed to [stats::p.adjust()].}
+
+\item{fdr_level}{FDR threshold used to diagnose whether the empirical
+p-value resolution is adequate for assay-wide testing.}
 
 \item{keep_fits}{Logical. Whether to retain fitted objects and result objects
 in the returned object.}
