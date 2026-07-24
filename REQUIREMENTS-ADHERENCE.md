@@ -23,8 +23,8 @@ documentation, and approval so checkpoint claims remain auditable.
 - Preprocessing workflow: input parsing and alignment vignette in
   `vignettes/data-loading.Rmd`.
 - Functional proof-of-concept vignettes use bundled real input files across
-  `vignettes/model-specification.Rmd`, `vignettes/spline-fitting.Rmd`,
-  `vignettes/validation.Rmd`, `vignettes/feature-testing.Rmd`,
+  `vignettes/course-overview.Rmd`, `vignettes/model-specification.Rmd`,
+  `vignettes/spline-fitting.Rmd`, `vignettes/validation.Rmd`,
   `vignettes/feeding-4mo-trajectories.Rmd`,
   `vignettes/response-families.Rmd`,
   `vignettes/trajectory-analysis.Rmd`, and
@@ -43,10 +43,28 @@ documentation, and approval so checkpoint claims remain auditable.
   covariate usage.
 - Per-feature workflow: `test_assay_features()` fits one trajectory model per
   assay feature, tests explicit biological levels over a declared inference
-  grid using covariance-calibrated maximum fitted contrasts, localizes the
-  strongest separation, and applies FDR correction. The
-  vignettes frame this as an all-feature screen before known or unexpected
-  signals are interpreted.
+  grid or critical-period window, localizes separation, and applies FDR
+  correction. Critical-period level, occurrence, and positive-abundance tests
+  fit full longitudinal smooths and integrate their uncentered contrasts over
+  the declared window; they do not reduce the model to within-window
+  proportions. Persistent-level and level-or-shape estimands remain available.
+  Result tables combine fitted effects and uncertainty with raw sample counts,
+  detection rates, descriptive group summaries, and explicit composition
+  policy. `aggregate_taxa()` supplies genus and broader-rank sensitivity views;
+  `community_features()` supplies prespecified richness, Shannon, Simpson,
+  dominance, and profiled-mass endpoints. The centered shape hypothesis uses a
+  reduced-model subject-cluster wild bootstrap
+  for Gaussian responses, family-aware parametric bootstrap otherwise, and a
+  separately labeled coefficient approximation for rapid screening. Result
+  tables also support subject-label permutation for integrated-level hypotheses
+  with subject-static focal exposures, preserving complete trajectories and
+  observed group counts; that method is explicitly invalid for centered-shape
+  nulls. Tables expose empirical p-value resolution, failed refits, integrated shape
+  differences, and effects centered against their null expectation. The
+  vignettes frame this as an outcome-blind, prevalence-defined feature screen
+  before known or unexpected signals are interpreted; the executable feeding
+  lecture tests the complete 66-species eligible universe and separates fast
+  approximation from empirical-null confirmation.
 - Trajectory comparison workflow: `compare_trajectories()` compares retained
   per-feature fits as fitted trajectory units and returns a long audit table
   with descriptive p-value labels and q-values. Heatmap-ready fitted distance
@@ -70,12 +88,17 @@ documentation, and approval so checkpoint claims remain auditable.
 - Tests: `tests/testthat/test-pipeline.R` and
   `tests/testthat/test-backhed-example-files.R`,
   `tests/testthat/test-api-lifecycle.R`,
-  `tests/testthat/test-validation-and-effects.R`, and
+  `tests/testthat/test-validation-and-effects.R`,
+  `tests/testthat/test-null-engine.R`, and
   `tests/testthat/test-gp-brms-backend.R`.
-- Current verification: `devtools::test()` passes, including fitted RBF and
-  Matern32 GP paths, with one expected skip for the missing-`brms` branch;
-  `R CMD check --no-manual` passes with one known NOTE for long example file
-  names.
+- Current verification: the full `devtools::test()` run passes 417 tests,
+  including fitted RBF/Matern32 GP compile-and-sample paths, with one existing
+  conditional GP skip and no failures or warnings. The revised feeding lecture
+  rendered all assay-wide and 199-replicate community-null chunks end to end;
+  all null refits succeeded. Source build succeeds, installed example data
+  resolve through `extdata`, and code/documentation check stages pass. The
+  check used `--no-vignettes --no-tests` after those stages were run separately,
+  so its two warnings are the expected missing-`inst/doc` vignette warnings.
 
 ## D0.3.1 Gaussian Processes Mid-Development Checkpoint
 
@@ -133,7 +156,7 @@ marked approved.
 | 0.3.4.4 | Classification + beta family | Tested + documented | Spline binomial and beta models are fitted in tests. Model frames enforce 0/1 binomial responses and open-interval beta responses; zeros/ones are rejected rather than transformed implicitly. Grouped CV defaults to log loss/Brier score for binomial models. `RESPONSE-FAMILIES.md` fixes the boundary policy, and the `response-families` vignette demonstrates a real-data two-part occurrence/positive-abundance analysis. Explicit hurdle or zero/one-inflated likelihoods remain outside the current checkpoint scope. | Approval signoff. |
 | 0.3.4.5 | Derivative extraction | Tested + documented | `trajectory_derivatives()` estimates finite-difference local rates of change for shared and varying spline trajectories; tests cover output shape, grouping columns, custom time grids, and unsupported GP engines. | Approval signoff; add GP posterior derivative support later if required. |
 | 0.3.4.6 | Interpretability summaries | Tested + documented | `trajectory_results()` extracts fit metrics and smooth tables; `trajectory_derivatives()` summarizes local rates; `trajectory_contrasts()` localizes group differences; `trajectory_moments()` reports level, AUC, temporal variation, timing, trend, velocity, and conditional turning points with uncertainty; `compare_trajectory_moments()` returns long draw-based contrast tables; ggplot engines cover curves, localized contrasts, moments, and moment differences; feature-pair evidence and distance matrices remain available. | Approval signoff. |
-| 0.3.4.7 | High-level microbiome workflows | Tested + documented | Functional real-file vignettes cover data loading, assay-wide model specification, time-varying exposure derivation, all-feature per-feature testing, the feeding-around-4-months proof of concept, spline follow-up, grouped validation, trajectory comparison, and a fitted full-cohort GP follow-up; `test_assay_features()` provides an anpan_batch-style spline workflow with FDR correction; `compare_trajectories()` produces downstream trajectory-comparison and heatmap inputs. | Approval signoff; GP assay-wide batch inference remains the explicit D0.3.2.6 extension. |
+| 0.3.4.7 | High-level microbiome workflows | Tested + documented | Functional real-file vignettes cover data loading, assay-wide model specification, time-varying exposure derivation, prevalence-defined per-feature testing, the feeding-around-4-months proof of concept, spline follow-up, grouped validation, trajectory comparison, and a fitted full-cohort GP follow-up; `test_assay_features()` provides an anpan_batch-style spline workflow with FDR correction; `compare_trajectories()` produces downstream trajectory-comparison and heatmap inputs. | Approval signoff; GP assay-wide batch inference remains the explicit D0.3.2.6 extension. |
 | 0.3.4.8 | Serialization | Tested + documented | `save_levaim_object()` and `load_levaim_object()` serialize LEVAiM fits and results through RDS; spline fit/result round trips and post-load prediction are tested. | Approval signoff. |
 
 **Checkpoint summary:** 8/8 are tested and documented. The checkpoint is ready

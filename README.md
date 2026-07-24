@@ -1,16 +1,20 @@
+---
+output: github_document
+---
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
+
+
 
 # LEVAiM
 
 <!-- badges: start -->
-
 <!-- badges: end -->
 
-LEVAiM is an R package for longitudinal microbiome modeling. It is being
-built as a bioBakery-oriented extension for organizing microbial feature
-tables, declaring time-aware models, and fitting feature trajectories
-over repeated samples.
+LEVAiM is an R package for longitudinal microbiome modeling. It is being built
+as a bioBakery-oriented extension for organizing microbial feature tables,
+declaring time-aware models, and fitting feature trajectories over repeated
+samples.
 
 The package currently supports:
 
@@ -27,40 +31,40 @@ The package currently supports:
 
 ## Vignettes
 
-This README is the project orientation page. The operational
-walkthroughs live in the package vignettes:
+This README is the project orientation page. The operational walkthrough is a
+nine-lecture course built around one Backhed feeding analysis:
 
 ``` r
+vignette("course-overview", package = "LEVAiM")
 vignette("data-loading", package = "LEVAiM")
 vignette("model-specification", package = "LEVAiM")
-vignette("feature-testing", package = "LEVAiM")
 vignette("feeding-4mo-trajectories", package = "LEVAiM")
 vignette("spline-fitting", package = "LEVAiM")
 vignette("validation", package = "LEVAiM")
 vignette("trajectory-analysis", package = "LEVAiM")
+vignette("response-families", package = "LEVAiM")
+vignette("gp-crash-course", package = "LEVAiM")
 vignette("gaussian-processes", package = "LEVAiM")
 ```
 
-Use `data-loading` to move from files to a `LongitudinalDataset`. Then
-use the modeling vignettes to declare an assay-wide feeding trajectory
-screen, test all taxonomic features, and only then follow up known or
-unexpected signals with fitting, validation, trajectory comparison, and
-Gaussian-process setup. The `feeding-4mo-trajectories` vignette is the
-worked proof-of-concept: it derives feeding state around 4 months,
-screens taxonomic trajectories, and interprets the screen as a
-trajectory-comparison problem.
+Start with `course-overview`. The lectures then move from aligned files to an
+explicit model specification, a prevalence-eligible assay screen, deep spline
+interpretation, subject-grouped validation, trajectory comparison, response
+families, and Gaussian processes. Each lecture runs independently while
+preserving the same scientific question and analytical contract.
 
-If the vignettes have not been built yet, render them from the package
-root:
+If the vignettes have not been built yet, render them from the package root:
 
 ``` r
+rmarkdown::render("vignettes/course-overview.Rmd")
 rmarkdown::render("vignettes/data-loading.Rmd")
 rmarkdown::render("vignettes/model-specification.Rmd")
-rmarkdown::render("vignettes/feature-testing.Rmd")
 rmarkdown::render("vignettes/feeding-4mo-trajectories.Rmd")
 rmarkdown::render("vignettes/spline-fitting.Rmd")
 rmarkdown::render("vignettes/validation.Rmd")
 rmarkdown::render("vignettes/trajectory-analysis.Rmd")
+rmarkdown::render("vignettes/response-families.Rmd")
+rmarkdown::render("vignettes/gp-crash-course.Rmd")
 rmarkdown::render("vignettes/gaussian-processes.Rmd")
 ```
 
@@ -86,8 +90,7 @@ install.packages(c(
 ))
 ```
 
-Gaussian-process models require `brms` and a working Stan backend. For
-example:
+Gaussian-process models require `brms` and a working Stan backend. For example:
 
 ``` r
 install.packages("brms")
@@ -100,8 +103,8 @@ cmdstanr::check_cmdstan_toolchain()
 cmdstanr::install_cmdstan(cores = 2)
 ```
 
-Stan is only needed for `trajectory_control(engine = "gp")`. Spline
-models do not require it.
+Stan is only needed for `trajectory_control(engine = "gp")`. Spline models do
+not require it.
 
 ## Basic Workflow
 
@@ -141,8 +144,8 @@ trajectory_effects(fit)
 trajectory_derivatives(fit)
 ```
 
-For assay-wide screening, fit the same trajectory model one feature at a
-time and collate feature-level evidence:
+For assay-wide screening, fit the same trajectory model one feature at a time
+and collate feature-level evidence:
 
 ``` r
 feature_tests <- test_assay_features(
@@ -152,26 +155,56 @@ feature_tests <- test_assay_features(
   time = "ageMonths",
   covariates = list(group_effect("feeding_state")),
   design = varying_trajectory("feeding_state"),
-  control = trajectory_control(engine = "spline"),
-  hypothesis = "trajectory_difference",
+  control = trajectory_control(engine = "spline", spline_k = 3),
+  hypothesis = "critical_period_level",
   test_covariate = "feeding_state",
+  test_window = c(3, 5),
+  null_control = trajectory_null_control(
+    method = "cluster_wild_bootstrap",
+    simulations = 999,
+    seed = 1
+  ),
   keep_fits = TRUE
 )
 
 feature_tests$table
+feature_tests$fdr_resolution
 ```
 
-The screen tests one declared null per feature and records the
-hypothesis, tested levels, inference grid, maximum separation and its
-time, p-value, q-value, and inferential limitation.
-Trajectory-difference tests use a maximum standardized fitted-contrast
-statistic calibrated from the model covariance; they do not select the
-smallest p-value among group-specific smooth terms.
+The screen tests one declared null per feature and records the hypothesis,
+tested levels, inference window, fitted effect and uncertainty, raw descriptive
+support, p-value, q-value, null method, Monte Carlo resolution, and inferential
+limitation. `critical_period_level` fits each smooth trajectory using all
+informative longitudinal observations, then integrates the uncentered fitted
+contrast over months 3–5. The window localizes a trajectory estimand; it does
+not turn the analysis into a cross-sectional test of proportions.
 
-Those retained fits can then be compared as fitted trajectories. The
-default comparison view produces feature-by-feature evidence within each
-metadata level, plus distance matrices that can be used directly for
-heatmaps.
+For Gaussian spline responses, the default empirical engine fits a reduced
+longitudinal null and applies one wild-bootstrap multiplier to all observations
+from the same subject. Shape tests retain group offsets in that reduced model;
+integrated-level tests remove the focal group while retaining the shared smooth
+time trajectory and subject structure. This block-aware principle is informed by
+[bioBakery/permaBrioche](https://github.com/biobakery/permaBrioche/). LEVAiM
+uses a reduced-model bootstrap rather than treating repeated samples as
+independent points.
+
+For an integrated-level hypothesis whose focal label is constant within child,
+`method = "subject_label_permutation"` provides a complementary design null. It
+permutes the label among eligible subjects while keeping each complete
+trajectory intact and preserving group counts. LEVAiM rejects this method for
+centered-shape inference because that null explicitly permits group offsets.
+
+Robust refitting is computationally expensive by design. Use
+`method = "gaussian_approximation"` to debug specifications and rank exploratory
+fits, but do not describe those p-values as an empirical longitudinal null.
+Reported inference should use a bootstrap method, enough simulations for the
+feature count and target FDR, and `cores` appropriate to the execution
+environment. `feature_tests$fdr_resolution` makes an underpowered simulation
+budget visible instead of silently returning impossible q-value thresholds.
+
+Those retained fits can then be compared as fitted trajectories. The default
+comparison view produces feature-by-feature evidence within each metadata level,
+plus distance matrices that can be used directly for heatmaps.
 
 ``` r
 trajectory_comparison <- compare_trajectories(
@@ -183,10 +216,10 @@ trajectory_comparison
 trajectory_distance_matrix(trajectory_comparison)
 ```
 
-Functional moments summarize fitted level, AUC, temporal variation,
-timing, trend, and velocity over declared biological windows. The same
-long-table API uses coefficient-covariance draws for splines and
-posterior fitted draws for GPs.
+Functional moments summarize fitted level, AUC, temporal variation, timing,
+trend, and velocity over declared biological windows. The same long-table API
+uses coefficient-covariance draws for splines and posterior fitted draws for
+GPs.
 
 ``` r
 moments <- trajectory_moments(
@@ -218,17 +251,16 @@ plot_trajectory_moment_comparisons(
 )
 ```
 
-Peak and valley fields carry explicit statuses such as
-`interior_supported`, `boundary_only`, and `flat_or_uncertain`; boundary
-maxima are not reported as biological peaks.
+Peak and valley fields carry explicit statuses such as `interior_supported`,
+`boundary_only`, and `flat_or_uncertain`; boundary maxima are not reported as
+biological peaks.
 
-Correlation p-values in this table are descriptive summaries of fitted
-grid curves; they are labeled as such because grid points are not
-independent biological observations.
+Correlation p-values in this table are descriptive summaries of fitted grid
+curves; they are labeled as such because grid points are not independent
+biological observations.
 
-Grouped cross-validation keeps repeated measurements from the same
-subject together and can retain held-out predictions for audit and
-plotting:
+Grouped cross-validation keeps repeated measurements from the same subject
+together and can retain held-out predictions for audit and plotting:
 
 ``` r
 cv <- cross_validate_trajectory(
@@ -242,8 +274,7 @@ cv_summary(cv)
 cv_predictions(cv)
 ```
 
-For Gaussian-process modeling, switch the engine and choose a starting
-kernel:
+For Gaussian-process modeling, switch the engine and choose a starting kernel:
 
 ``` r
 gp_mf <- model_frame(
@@ -257,33 +288,30 @@ gp_mf <- model_frame(
 )
 ```
 
-GP posterior derivatives and functional moments use posterior fitted
-draws. The full-cohort Backhed workflow in
-`vignette("gaussian-processes", package = "LEVAiM")` includes an
-explicit R-hat, effective-sample-size, and divergence gate before
-interpretation. Both engines support Gaussian, binomial, and beta
-responses under the explicit boundary policy in `RESPONSE-FAMILIES.md`.
+GP posterior derivatives and functional moments use posterior fitted draws.
+The full-cohort Backhed workflow in
+`vignette("gaussian-processes", package = "LEVAiM")` includes an explicit
+R-hat, effective-sample-size, and divergence gate before interpretation.
+Both engines support Gaussian, binomial, and beta responses under the explicit
+boundary policy in `RESPONSE-FAMILIES.md`.
 
 ## API Status
 
-The spline mid-development API is documented in `API-LIFECYCLE.md`. In
-short:
+The spline mid-development API is documented in `API-LIFECYCLE.md`. In short:
 
 - spline modeling, prediction, effects, and grouped CV are the stable
   mid-development surface;
-- MetaPhlAn/HUMAnN parsers are experimental while more input variants
-  are added;
-- Gaussian-process modeling is a `brms`-backed prototype pending broader
-  fitted testing and review.
+- MetaPhlAn/HUMAnN parsers are experimental while more input variants are added;
+- Gaussian-process modeling is a `brms`-backed prototype pending broader fitted
+  testing and review.
 
 Requirement coverage is tracked in `REQUIREMENTS-ADHERENCE.md`.
 
-Spline response families are specified explicitly. Binomial responses
-must be exactly 0/1, while beta responses must lie strictly between 0
-and 1. LEVAiM never adds pseudocounts or moves boundary values silently.
-See `RESPONSE-FAMILIES.md` and the real-data
-occurrence/positive-abundance workflow in
-`vignette("response-families", package = "LEVAiM")`.
+Spline response families are specified explicitly. Binomial responses must be
+exactly 0/1, while beta responses must lie strictly between 0 and 1. LEVAiM
+never adds pseudocounts or moves boundary values silently. See
+`RESPONSE-FAMILIES.md` and the real-data occurrence/positive-abundance workflow
+in `vignette("response-families", package = "LEVAiM")`.
 
 ## Frequently Asked Questions
 
@@ -294,35 +322,35 @@ No, Stan is only needed for `engine = "gp"`.
 ### How are missing annotations handled?
 
 By default, missing categorical annotations are retained as an explicit
-`"Unknown"` level and sparse categorical levels are collapsed to
-`"Other"`. Rows are still removed when essential fields such as
-response, time, subject, or continuous covariates are missing. Use
-`na_action = "complete"` for strict complete-case annotation handling.
+`"Unknown"` level and sparse categorical levels are collapsed to `"Other"`.
+Rows are still removed when essential fields such as response, time, subject, or
+continuous covariates are missing. Use `na_action = "complete"` for strict
+complete-case annotation handling.
 
 ### Where should I start?
 
 Start with:
 
 ``` r
-vignette("data-loading", package = "LEVAiM")
+vignette("course-overview", package = "LEVAiM")
 ```
 
 Then move through the functional workflow vignettes:
 
 ``` r
+vignette("data-loading", package = "LEVAiM")
 vignette("model-specification", package = "LEVAiM")
-vignette("feature-testing", package = "LEVAiM")
 vignette("feeding-4mo-trajectories", package = "LEVAiM")
 vignette("spline-fitting", package = "LEVAiM")
+vignette("validation", package = "LEVAiM")
+vignette("trajectory-analysis", package = "LEVAiM")
 vignette("response-families", package = "LEVAiM")
 vignette("gp-crash-course", package = "LEVAiM")
 vignette("gaussian-processes", package = "LEVAiM")
-vignette("validation", package = "LEVAiM")
-vignette("trajectory-analysis", package = "LEVAiM")
 ```
 
 ### Why does package check mention long example filenames?
 
-The included bioBakery-style example files preserve their original
-descriptive names. R reports those paths as non-portable in source
-tarballs, but the package tests and vignettes still run.
+The included bioBakery-style example files preserve their original descriptive
+names. R reports those paths as non-portable in source tarballs, but the package
+tests and vignettes still run.

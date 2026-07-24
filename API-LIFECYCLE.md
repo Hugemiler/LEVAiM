@@ -61,8 +61,11 @@ These functions are available but may change before later checkpoints:
 | Function | Stability | Reason |
 | --- | --- | --- |
 | `read_metaphlan()` | Experimental | Parsing is functional and tested for current example files; additional MetaPhlAn variants may require argument/default changes. |
+| `aggregate_taxa()` | Experimental | Aggregates MetaPhlAn lineages to a declared rank with an explicit as-supplied or renormalized composition policy. |
+| `community_features()` | Experimental | Derives prespecified richness, Shannon, Simpson, dominance, and profiled-mass endpoints for the shared longitudinal workflow. |
 | `read_humann()` | Experimental | HUMAnN parsing is functional, but larger workflow coverage is still developing. |
-| `test_assay_features()` | Experimental | Per-feature spline testing supports declared overall-trajectory, trajectory-difference, and adjusted covariate hypotheses. Trajectory differences use covariance-calibrated maximum fitted contrasts over explicit levels and inference grids; GP-scale inference remains future work. |
+| `trajectory_null_control()` | Experimental | Configures design-aware cluster wild bootstrap, subject-label permutation for subject-static integrated-level hypotheses, family-aware parametric bootstrap, or an explicitly labeled Gaussian coefficient approximation. Centered-shape tests reject label permutation because their null permits group offsets. |
+| `test_assay_features()` | Experimental | Per-feature spline testing supports overall, any-separation, centered-shape, critical-period level, occurrence, positive-abundance, persistent-level, level-or-shape, and adjusted-covariate hypotheses. Critical-period windows localize contrasts of full longitudinal smooths rather than subsetting models to cross-sectional samples. Tables combine fitted effects, uncertainty, raw support, p/q-values, null diagnostics, and composition policy; GP-scale inference remains future work. |
 | `trajectory_contrasts()` | Experimental | Returns covariance-aware pointwise group contrasts over time for localization after an omnibus trajectory test. |
 | `trajectory_moments()` | Experimental | Returns engine-neutral functional summaries over declared windows using spline coefficient draws or GP posterior fitted draws. |
 | `compare_trajectory_moments()` | Experimental | Returns draw-based between-group moment differences with intervals, tail probabilities, q-values, and explicit inferential warnings. |
@@ -89,13 +92,13 @@ The package currently documents the workflow as real-file functional modules:
 
 | Vignette | Role |
 | --- | --- |
+| `course-overview` | Syllabus, recurring biological question, course order, feature-universe rule, and analytical contract. |
 | `data-loading` | Input parsing, sample-name cleaning, sample alignment, and `LongitudinalDataset` construction. |
 | `model-specification` | Declaring the assay-wide feeding trajectory screen: subject/time variables, covariate roles, time-varying exposure derivations, trajectory design, and preprocessing controls. |
-| `feature-testing` | Testing every taxonomic feature with the same model, then labeling known early colonizers and unexpected signals after ranking. |
-| `feeding-4mo-trajectories` | Worked proof-of-concept deriving feeding state from the 3-to-5 month window, screening taxonomic trajectories, interpreting hallmark and unexpected taxa, and generating trajectory-comparison inputs. |
+| `feeding-4mo-trajectories` | All-eligible assay-wide critical-period screen using full smooth trajectories, two-part occurrence/positive-abundance sensitivity, composition and genus-rank checks, FDR correction, and post-ranking hallmark audit. |
 | `spline-fitting` | Following up a screen-derived feature with results, effects, plots, and derivatives. |
 | `validation` | Subject-grouped folds, repeated cross-validation, aggregate summaries, and held-out predictions for screen-derived follow-up models. |
-| `trajectory-analysis` | Long trajectory-comparison tables and fitted-distance matrix generation for retained screen hits. |
+| `trajectory-analysis` | Six-feature follow-up producing long trajectory-comparison tables and feeding-group-specific fitted-distance matrices. |
 | `gp-crash-course` | Conceptual introduction to GP trajectory assumptions, kernels, likelihoods, approximation, diagnostics, derivatives, and biological interpretation. |
 | `gaussian-processes` | Executable full-cohort Backhed GP follow-up with diagnostic gating, prediction, posterior derivatives, moments, plotting, and serialization. |
 | `response-families` | Real-data spline workflow separating binomial occurrence from beta-distributed positive abundance under the explicit zero/one boundary policy. |
