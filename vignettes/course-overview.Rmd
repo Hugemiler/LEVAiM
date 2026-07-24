@@ -1,0 +1,110 @@
+---
+title: "00. The LEVAiM longitudinal microbiome course"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{00. The LEVAiM longitudinal microbiome course}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r setup}
+library(LEVAiM)
+```
+
+# Start here
+
+This is not a catalogue of unrelated functions. It is one analysis taught in
+nine lectures.
+
+We will ask a recurring biological question:
+
+> How do infant gut microbial trajectories differ according to feeding practice
+> around four months of age?
+
+The Backhed profile gives us real longitudinal observations, repeated samples
+from the same children, incomplete annotations, many sparse taxa, and a familiar
+biological benchmark in early *Bifidobacterium* colonization. That makes it a
+useful classroom dataset. The point of the course, however, is the operation:
+how to move from files to an auditable longitudinal claim.
+
+# The route through the course
+
+| Lecture | Vignette | Question answered |
+| --- | --- | --- |
+| 1 | `data-loading` | What did we read, align, and retain? |
+| 2 | `model-specification` | What exactly are we asking the model to estimate? |
+| 3 | `feeding-4mo-trajectories` | Which taxa show feeding-associated trajectory differences? |
+| 4 | `spline-fitting` | What does one fitted trajectory actually look like? |
+| 5 | `validation` | Does the model predict held-out children sensibly? |
+| 6 | `trajectory-analysis` | Which microbial trajectories move together or apart? |
+| 7 | `response-families` | Are we modeling abundance, occurrence, or positive abundance? |
+| 8 | `gp-crash-course` | What is a Gaussian process, and what assumptions does it make? |
+| 9 | `gaussian-processes` | How do we fit and diagnose the real GP workflow? |
+
+Begin with:
+
+```{r start, eval = FALSE}
+vignette("data-loading", package = "LEVAiM")
+```
+
+# One scientific contract
+
+The lectures share four rules.
+
+## Define exposure before fitting
+
+`feeding_state` changes over time. Our primary exposure is the modal feeding
+state observed from 3 through 5 months, called `feeding_4mo`. We derive it before
+model-frame construction and retain its audit trail.
+
+## Define the feature universe without reading the answers
+
+The raw species table contains 2,011 columns after alignment. Most are nearly
+empty: the median species occurs in less than 0.4% of samples. The course tests
+species observed in at least 20% of aligned samples. In the bundled files this
+produces 66 eligible species. The executable screen tests all 66; computation
+is not used as a hidden second filter.
+
+This is an unsupervised measurement-support rule. It does not inspect organism
+names, feeding groups, effect sizes, or p-values. Every eligible taxon receives
+the same model and enters the same multiplicity family.
+
+## Keep subjects intact during validation
+
+Repeated samples from one child are not independent train/test units. Every
+validation split holds out complete subjects.
+
+## Separate discovery from interpretation
+
+We rank the complete eligible screen before attaching labels such as hallmark
+colonizer or unexpected signal. A known organism may be used as a benchmark
+afterward, but it does not receive privileged entry into the test universe.
+
+# How the lectures run
+
+Each lecture can be rendered on its own. It reconstructs the small amount of
+state it needs rather than assuming that a previous vignette left objects in the
+workspace.
+
+The spline course is evaluated during ordinary vignette builds. The final GP
+posterior is the exception because a diagnostics-grade Stan fit is deliberately
+expensive. Lecture 9 evaluates parsing and compilation by default and gives one
+explicit environment switch for the full posterior run. It also records the
+diagnostics from the acceptance run; it does not disguise a short chain as
+biological evidence.
+
+# The analytical spine
+
+Every lecture is a closer look at one part of the same pipeline:
+
+```text
+parse -> derive -> specify -> build -> compile -> fit
+      -> validate -> predict -> interpret -> compare -> serialize
+```
+
+The important habit is not memorizing function names. It is knowing which
+scientific decision is being made at each arrow.
