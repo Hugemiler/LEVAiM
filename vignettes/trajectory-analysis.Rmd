@@ -1,40 +1,44 @@
 ---
-title: "Comparing trajectories after an all-feature screen"
+title: "06. Compare microbial trajectories"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Comparing trajectories after an all-feature screen}
+  %\VignetteIndexEntry{06. Compare microbial trajectories}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include = FALSE}
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
-)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
 ```{r setup}
 library(LEVAiM)
 ```
 
-# Overview
+**Course position:** Lecture 6 of 9<br>
+**Previously:** `vignette("validation", package = "LEVAiM")`<br>
+**Next:** `vignette("response-families", package = "LEVAiM")`
 
-This vignette starts after the all-feature screen. It covers two outputs:
+# From one trajectory to a microbial program
 
-1. a long trajectory-comparison table from `compare_trajectories()`;
-2. a fitted-trajectory distance matrix from `trajectory_distance_matrix()`.
+Lecture 3 ranked the assay. Lectures 4 and 5 then slowed down to inspect and
+validate one benchmark. We can now ask a different question:
 
-The correlation p-values in the comparison table are descriptive summaries of
-fitted grid curves. They are labeled as descriptive because fitted grid points
-are not independent biological observations.
+> Within each feeding group, which microbial features follow similar temporal
+> paths between 3 and 5 months?
 
-# Prepare retained feature fits from the screen
+This is a follow-up analysis, not a second discovery screen. We use a small
+teaching panel containing a *Bifidobacterium* benchmark and five additional
+taxa from the assay-wide teaching screen. The panel is declared openly so the vignette
+fits six trajectories, not 2,011 mostly empty profiles.
 
-```{r feature-fits}
+# Reconstruct the course dataset
+
+```{r course-data}
 input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) input_dir <- file.path("examples", "input_files")
 if (!dir.exists(input_dir)) {
-  input_dir <- file.path("examples", "input_files")
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -42,7 +46,6 @@ metadata <- read.csv(
   check.names = FALSE,
   stringsAsFactors = FALSE
 )
-
 taxa <- read_metaphlan(
   file.path(
     input_dir,
@@ -54,117 +57,190 @@ taxa <- read_metaphlan(
   clean_sample_names = TRUE
 )
 
-shared_samples <- intersect(metadata$sample, rownames(taxa))
-metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+shared <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared, metadata$sample), , drop = FALSE]
 rownames(metadata) <- metadata$sample
 taxa <- taxa[rownames(metadata), , drop = FALSE]
-
 metadata$subject <- factor(metadata$subject)
-metadata$feeding_state <- factor(metadata$feeding_state)
 
-ds <- LongitudinalDataset(
-  assays = list(taxa = taxa),
-  metadata = metadata,
-  time_col = "ageMonths",
-  subject_col = "subject"
-)
-
-ds_history <- derive_time_varying_features(
+ds <- LongitudinalDataset(list(taxa = taxa), metadata, "ageMonths", "subject")
+ds <- derive_time_varying_features(
   ds,
-  exposure = "feeding_state",
-  summaries = list(
-    feeding_4mo = exposure_window(3, 5, method = "modal"),
-    feeding_transition = exposure_transition()
-  )
+  "feeding_state",
+  list(feeding_4mo = exposure_window(3, 5, method = "modal"))
 )
 ```
 
-# Run the all-feature screen
+# Declare the follow-up panel
 
-The first pass tests every feature. Then a focused set of hits is refit with
-`keep_fits = TRUE` so trajectories can be compared.
+The readable labels below are resolved to full MetaPhlAn feature names. Every
+member exceeds the 20% prevalence rule used for the screen.
 
-```{r all-feature-screen, eval = FALSE}
-feature_tests <- test_assay_features(
-  ds,
-  assay = "taxa",
-  features = colnames(taxa),
-  subject = "subject",
-  time = "ageMonths",
-  covariates = list(group_effect("feeding_state", role = "time_varying")),
-  design = varying_trajectory("feeding_state"),
-  control = trajectory_control(
-    engine = "spline",
-    transform = "log1p",
-    spline_k = 6,
-    na_action = "explicit",
-    sparse_min_n = 5
-  )
+```{r follow-up-panel}
+panel_labels <- c(
+  "Bifidobacterium longum",
+  "Phocaeicola vulgatus",
+  "Escherichia coli",
+  "Veillonella parvula",
+  "Streptococcus salivarius",
+  "Bacteroides uniformis"
+)
+panel_species <- gsub(" ", "_", panel_labels, fixed = TRUE)
+panel_features <- vapply(
+  panel_species,
+  function(species) {
+    hit <- grep(paste0("s__", species, "$"), colnames(taxa), value = TRUE)
+    stopifnot(length(hit) == 1L)
+    hit
+  },
+  character(1)
 )
 
-ranked_features <- feature_tests$table[
-  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
-]
-
-follow_up_features <- head(ranked_features$feature[ranked_features$status == "ok"], 8)
+data.frame(
+  feature = panel_labels,
+  prevalence = colMeans(taxa[, panel_features, drop = FALSE] > 0),
+  row.names = NULL
+)
 ```
 
-# Refit selected screen hits with retained fits
+# Fit the same model six times
 
-The follow-up set is selected from the screen. It may include familiar early
-colonizers, unexpected taxa, or both.
+`test_assay_features()` remains useful here because it guarantees that every
+feature receives the same specification. `keep_fits = TRUE` retains the fitted
+objects needed for pairwise trajectory comparison.
 
-```{r retained-fits, eval = FALSE}
-feature_tests_with_fits <- test_assay_features(
+```{r panel-fits}
+panel_fits <- test_assay_features(
   ds,
   assay = "taxa",
-  features = follow_up_features,
+  features = unname(panel_features),
   subject = "subject",
   time = "ageMonths",
-  covariates = list(group_effect("feeding_state", role = "time_varying")),
-  design = varying_trajectory("feeding_state"),
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure")
+  ),
+  design = varying_trajectory("feeding_4mo"),
   control = trajectory_control(
     engine = "spline",
     transform = "log1p",
-    spline_k = 6,
+    spline_k = 3,
     na_action = "explicit",
     sparse_min_n = 5
   ),
-  keep_fits = TRUE
+  keep_fits = TRUE,
+  error_action = "stop"
 )
+
+names(panel_fits$fits) <- panel_labels
+panel_fits$table[c("feature", "status")]
 ```
 
-# Compare trajectories
+# Produce the comparison data frame
 
-`compare_trajectories()` returns a long data frame. Each row is a feature pair,
-trajectory group, time window, and metric.
+Each row below compares one feature pair, one feeding group, one time window,
+and one metric. Correlation asks whether curve shapes move together. Distance
+asks how far apart those shapes are. Derivative correlation asks whether their
+local rates of change agree.
 
-```{r compare, eval = FALSE}
+```{r compare-trajectories}
 trajectory_comparison <- compare_trajectories(
-  feature_tests_with_fits,
-  n = 25,
-  metrics = c("fitted_correlation", "fitted_distance", "derivative_correlation")
+  panel_fits,
+  time_values = seq(3, 5, length.out = 30),
+  view = "same_group_level",
+  metrics = c(
+    "fitted_correlation",
+    "fitted_distance",
+    "derivative_correlation"
+  )
 )
 
-head(trajectory_comparison)
+display_comparison <- trajectory_comparison
+display_comparison$feature_1 <- gsub(
+  "_", " ", sub(".*s__", "", display_comparison$feature_1)
+)
+display_comparison$feature_2 <- gsub(
+  "_", " ", sub(".*s__", "", display_comparison$feature_2)
+)
+
+head(display_comparison[c(
+  "feature_1", "feature_2", "group_level", "metric",
+  "estimate", "p_value", "q_value"
+)])
 ```
 
-# Inspect descriptive inference labels
+# Treat the p-values as descriptive
 
-```{r descriptive-labels, eval = FALSE}
-trajectory_comparison[
-  trajectory_comparison$metric == "fitted_correlation",
-  c("feature_1", "feature_2", "group_level", "estimate", "p_value", "q_value",
-    "test_method", "inference_warning")
-]
+Biostatisticians will look for p-values, so the table provides them. It also
+labels exactly what they are: correlations among fitted grid values. Those grid
+points are generated by models from shared subjects and are not independent
+biological observations. The p-values and q-values describe curve alignment;
+they do not test subject-level co-dynamics or a causal microbial interaction.
+
+```{r inference-contract}
+unique(trajectory_comparison[c(
+  "test_method", "null_hypothesis", "inference_warning"
+)])
 ```
 
-# Generate a distance matrix
+# Build one distance matrix per feeding group
 
-Distance matrices are derived from the long comparison table. They are suitable
-inputs for heatmap code; plotting is intentionally left to downstream workflow
-decisions.
+A single heatmap would collapse biologically distinct trajectories. We instead
+extract one matrix for each feeding group from the same long table.
 
-```{r distance-matrix, eval = FALSE}
-trajectory_distance_matrix(trajectory_comparison)
+```{r distance-matrices}
+feeding_groups <- c("ExclBreastFed", "ExclFormulaFed", "Mixed")
+trajectory_labels <- unique(rbind(
+  data.frame(
+    trajectory_id = trajectory_comparison$trajectory_id_1,
+    feature = trajectory_comparison$feature_1
+  ),
+  data.frame(
+    trajectory_id = trajectory_comparison$trajectory_id_2,
+    feature = trajectory_comparison$feature_2
+  )
+))
+trajectory_labels$feature <- gsub(
+  "_", " ", sub(".*s__", "", trajectory_labels$feature)
+)
+
+distance_matrices <- setNames(
+  lapply(feeding_groups, function(feeding_group) {
+    group_comparison <- trajectory_comparison[
+      trajectory_comparison$group_level == feeding_group,
+    ]
+    distance <- trajectory_distance_matrix(group_comparison)
+    readable_names <- trajectory_labels$feature[
+      match(rownames(distance), trajectory_labels$trajectory_id)
+    ]
+    rownames(distance) <- readable_names
+    colnames(distance) <- readable_names
+    distance
+  }),
+  feeding_groups
+)
+
+names(distance_matrices)
+distance_matrices[[1]]
+```
+
+These matrices are ready for heatmaps or clustering, but the matrix identity
+must travel with the result: a pair of taxa can move together under one feeding
+history and diverge under another.
+
+In the exclusive-breastfed matrix, *B. longum* and *V. parvula* have nearly
+identical standardized fitted shapes (distance 0.029). *S. salivarius* and
+*E. coli* form another close pair (distance 0.029), while those two pairs are
+almost maximally separated. Notice also that fitted-level and derivative
+correlations need not agree: two curves can occupy similar levels while changing
+at different local rates. These are model- and window-dependent shape summaries,
+not evidence that the organisms interact or co-vary within individual children.
+
+# Pass the baton
+
+So far every response has been transformed continuous abundance. Lecture 7
+asks whether the biology calls for a different response: detection probability
+or abundance conditional on detection.
+
+```{r next-lecture, eval = FALSE}
+vignette("response-families", package = "LEVAiM")
 ```
