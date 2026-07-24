@@ -1,43 +1,47 @@
 ---
-title: "Feeding around 4 months and infant gut trajectories"
+title: "03. Discover feeding-associated trajectories"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Feeding around 4 months and infant gut trajectories}
+  %\VignetteIndexEntry{03. Discover feeding-associated trajectories}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include = FALSE}
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
-)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
 ```{r setup}
 library(LEVAiM)
 ```
 
-# Objective
+**Course position:** Lecture 3 of 9<br>
+**Previously:** `vignette("model-specification", package = "LEVAiM")`<br>
+**Next:** `vignette("spline-fitting", package = "LEVAiM")`
 
-This vignette asks a sharper question than "does the current feeding annotation
-matter?"
+# Today we run the screen
 
-> Are taxonomic trajectories associated with the feeding state recorded around
-> 4 months of age?
+In Lecture 2 we translated the biological question into a model specification.
+Now every taxon with adequate measurement support gets the same chance to
+answer it:
 
-The exposure is a derived subject-level feature: `feeding_4mo`, defined as the
-modal `feeding_state` observed between 3 and 5 months. The response is still
-feature-by-feature taxonomic abundance. The screen is not restricted to
-favorite organisms. Hallmark early gut colonizers are used as interpretive
-landmarks after the screen has run.
+> Between 3 and 5 months, do fitted abundance trajectories differ among infants
+> classified as exclusively breastfed, exclusively formula fed, or mixed fed?
 
-# Prepare the example data
+We will not begin with a list of favorite organisms. We will define eligibility
+using prevalence alone, test every eligible species, correct that complete set
+of p-values, and only then ask whether familiar or surprising taxa appear.
 
-```{r load-example}
+# Reconstruct the course dataset
+
+Each lecture runs on its own, so we repeat the short parsing block rather than
+depending on objects left behind by another vignette.
+
+```{r load-course-data}
 input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) input_dir <- file.path("examples", "input_files")
 if (!dir.exists(input_dir)) {
-  input_dir <- file.path("examples", "input_files")
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -45,7 +49,6 @@ metadata <- read.csv(
   check.names = FALSE,
   stringsAsFactors = FALSE
 )
-
 taxa <- read_metaphlan(
   file.path(
     input_dir,
@@ -61,9 +64,7 @@ shared_samples <- intersect(metadata$sample, rownames(taxa))
 metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
 rownames(metadata) <- metadata$sample
 taxa <- taxa[rownames(metadata), , drop = FALSE]
-
 metadata$subject <- factor(metadata$subject)
-metadata$feeding_state <- factor(metadata$feeding_state)
 
 ds <- LongitudinalDataset(
   assays = list(taxa = taxa),
@@ -71,75 +72,75 @@ ds <- LongitudinalDataset(
   time_col = "ageMonths",
   subject_col = "subject"
 )
-```
-
-# Derive feeding state around 4 months
-
-`feeding_state` varies over time. For this question, using the raw column
-directly would ask about the feeding state at each sample. Instead, derive the
-history variable first, then model trajectories as a function of that derived
-state.
-
-```{r derive-feeding-4mo}
-ds_4mo <- derive_time_varying_features(
+ds <- derive_time_varying_features(
   ds,
   exposure = "feeding_state",
-  summaries = list(
-    feeding_4mo = exposure_window(3, 5, method = "modal"),
-    ever_exclusive_breastfed = exposure_ever("ExclBreastFed"),
-    feeding_transition = exposure_transition()
-  )
+  summaries = list(feeding_4mo = exposure_window(3, 5, method = "modal"))
 )
-
-exposure_derivations(ds_4mo)
 ```
 
-The resulting analysis strata are not balanced. That is part of the biological
-and epidemiologic setting, not a nuisance to hide.
+# Define who is compared
 
-```{r feeding-4mo-distribution}
-table(ds_4mo$metadata$feeding_4mo, useNA = "ifany")
+Before touching the taxa, inspect the derived exposure. Sample counts and
+subject counts answer different questions; repeated samples make the first look
+larger.
 
-subject_feeding <- unique(ds_4mo$metadata[, c("subject", "feeding_4mo")])
+```{r exposure-support}
+table(ds$metadata$feeding_4mo, useNA = "ifany")
+
+subject_feeding <- unique(ds$metadata[c("subject", "feeding_4mo")])
 table(subject_feeding$feeding_4mo, useNA = "ifany")
 ```
 
-In the completed run for this vignette, `feeding_4mo` was observed as
-exclusive breastfeeding for 62 subjects, mixed feeding for 17 subjects, and
-exclusive formula feeding for 10 subjects; 11 subjects lacked an observed
-feeding state in the 3-to-5 month window. This is the window-centered exposure
-needed for the 4-month visit, and it is much better populated than the earlier
-2-to-4 month derivation.
+Unknown feeding histories remain visible in the model frame, but they are not a
+fourth biological feeding practice. The test below names the three levels in
+the hypothesis explicitly.
 
-# Screen the assay
+# Reduce 2,011 sparse columns to an estimable universe
 
-The screen is intentionally assay-wide. For estimability and runtime, the
-executed vignette run used taxa present in at least 5% of samples; this is a
-prevalence filter, not a biological preselection. To fit every column in the
-assay, replace `screen_features` with `all_features`.
+The raw profile contains thousands of species because taxonomic profilers can
+name organisms seen in very few samples. Fitting all of them is not
+comprehensive; it is mostly testing absence.
 
-```{r screen-features}
-all_features <- colnames(taxa)
+```{r eligible-universe}
 prevalence <- colMeans(taxa > 0, na.rm = TRUE)
-screen_features <- names(prevalence[prevalence >= 0.05])
+eligible_features <- names(prevalence[prevalence >= 0.20])
 
-length(all_features)
-length(screen_features)
+data.frame(
+  raw_species = ncol(taxa),
+  eligible_species = length(eligible_features),
+  prevalence_threshold = 0.20
+)
 ```
 
-The full screen is not evaluated during package vignette builds because it fits
-one group-specific trajectory model per feature and calibrates a maximum
-standardized contrast statistic from that model's coefficient covariance. The
-fit uses all observed ages, but inference is prespecified over 3 to 5 months,
-the same biological window used to construct `feeding_4mo`. Missing-exposure
-samples remain in the fit while only the three observed feeding states enter
-the biological test.
+The 20% threshold is declared before fitting and ignores taxon identity,
+feeding group, effect size, and outcome significance. In these files it reduces
+2,011 species to 66. We test all 66. A teaching budget is not a scientific
+reason to remove eligible outcomes from the multiplicity family.
 
-```{r feeding-4mo-screen, eval = FALSE}
-feeding_4mo_tests <- test_assay_features(
-  ds_4mo,
+# Fit trajectories first; localize the contrast second
+
+Every model uses every informative longitudinal observation. The 3–5 month
+window does **not** subset the model to a cross-sectional test. It defines the
+domain over which we integrate the uncentered contrast between smooth fitted
+trajectories. A feeding-associated level difference around four months is
+therefore signal, not a nuisance offset to be subtracted away.
+
+These children were sampled at three biological waves. Slightly different
+recorded ages do not create six independent temporal degrees of freedom, so we
+set `spline_k = 3`.
+
+```{r assay-screen}
+fast_null <- trajectory_null_control(
+  method = "gaussian_approximation",
+  simulations = 4999,
+  seed = 11
+)
+
+feeding_screen <- test_assay_features(
+  ds,
   assay = "taxa",
-  features = screen_features,
+  features = eligible_features,
   subject = "subject",
   time = "ageMonths",
   covariates = list(
@@ -149,430 +150,293 @@ feeding_4mo_tests <- test_assay_features(
   control = trajectory_control(
     engine = "spline",
     transform = "log1p",
-    spline_k = 6,
+    spline_k = 3,
     na_action = "explicit",
     sparse_min_n = 5
   ),
-  hypothesis = "trajectory_difference",
+  hypothesis = "critical_period_level",
   test_covariate = "feeding_4mo",
   test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
-  test_time_values = seq(3, 5, length.out = 30),
-  test_simulations = 1999,
-  test_seed = 1,
+  test_window = c(3, 5),
+  null_control = fast_null,
   keep_fits = FALSE,
   error_action = "continue"
 )
-
-feeding_4mo_tests$table
 ```
 
-# What the screen found
+This is the middle layer between one hand-built model and an opaque black-box
+pipeline. The result is a data frame with one row per eligible species, one
+declared smooth-trajectory hypothesis per row, and one multiplicity correction
+across all 66 rows.
 
-The completed 5%-prevalence screen tested 220 taxonomic features. All 220
-completed. The localized omnibus test identified a selective feeding-window
-signal:
+This first pass uses a conditional Gaussian coefficient approximation. It is
+fast enough to audit the complete feature universe and precise enough to rank
+small p-values, but it is not an empirical repeated-measures null. Its q-values
+are provisional until the design-specific plasmode and subject-cluster
+bootstrap gates agree.
 
-```{r observed-fdr-summary}
-observed_fdr_summary <- data.frame(
-  threshold = c("q < 0.10", "q < 0.05", "q < 0.01"),
-  significant_features = c(17, 12, 0),
-  screened_features = 220
+# Read the table before telling a story
+
+```{r screen-summary}
+table(feeding_screen$table$status)
+feeding_screen$fdr_resolution
+sum(feeding_screen$table$p_adjust < 0.05, na.rm = TRUE)
+sum(feeding_screen$table$p_adjust < 0.10, na.rm = TRUE)
+
+ranked <- feeding_screen$table[
+  order(feeding_screen$table$p_adjust, feeding_screen$table$p_value),
+]
+head(ranked[c(
+  "feature", "p_value", "p_adjust", "model_effect", "model_std_error",
+  "effect_level_1", "effect_level_2", "n", "min_group_n", "null_method"
+)], 10)
+```
+
+`model_effect` is the strongest pair's average fitted difference over months
+3–5 on the `log1p` model scale. It is computed from the smooth trajectories,
+not from group proportions in a window. The raw window summaries remain in
+`descriptive_summary` so we can catch a model result that contradicts its own
+observations.
+
+# Ask whether zeros carry a different answer
+
+Relative-abundance zeros can encode absence, undersampling, or both. One
+Gaussian curve cannot tell us whether feeding changes colonization probability
+or abundance among colonized infants. We therefore fit two more longitudinal
+trajectory screens over the same 66-feature family.
+
+```{r component-screens}
+feeding_occurrence <- test_assay_features(
+  ds, assay = "taxa", features = eligible_features,
+  subject = "subject", time = "ageMonths",
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure")),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(spline_k = 3, na_action = "explicit", sparse_min_n = 5),
+  hypothesis = "occurrence_difference",
+  test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_window = c(3, 5), null_control = fast_null,
+  error_action = "continue"
 )
 
-observed_fdr_summary
-```
+feeding_positive <- test_assay_features(
+  ds, assay = "taxa", features = eligible_features,
+  subject = "subject", time = "ageMonths",
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure")),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(transform = "log1p", spline_k = 3,
+    na_action = "explicit", sparse_min_n = 5),
+  hypothesis = "positive_abundance_difference",
+  test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_window = c(3, 5), null_control = fast_null,
+  error_action = "continue"
+)
 
-Every row now carries one hypothesis and one null, rather than whichever
-group-specific smooth happened to have the smallest p-value:
-
-```{r observed-term-summary}
-observed_test_contract <- data.frame(
-  field = c("hypothesis", "null", "method", "multiplicity"),
-  value = c(
-    "trajectory_difference",
-    "equal fitted trajectories across observed feeding_4mo groups from 3 to 5 months",
-    "maximum standardized contrast calibrated from coefficient covariance",
-    "Benjamini-Hochberg across 220 features"
+data.frame(
+  estimand = c("total abundance", "occurrence", "positive abundance"),
+  successful = c(
+    sum(feeding_screen$table$status == "ok"),
+    sum(feeding_occurrence$table$status == "ok"),
+    sum(feeding_positive$table$status == "ok")
+  ),
+  provisional_q_below_0.10 = c(
+    sum(feeding_screen$table$p_adjust < 0.10, na.rm = TRUE),
+    sum(feeding_occurrence$table$p_adjust < 0.10, na.rm = TRUE),
+    sum(feeding_positive$table$p_adjust < 0.10, na.rm = TRUE)
   )
 )
 
-observed_test_contract
+estimand_audit <- do.call(rbind, list(
+  transform(feeding_screen$table, estimand = "total_abundance"),
+  transform(feeding_occurrence$table, estimand = "occurrence"),
+  transform(feeding_positive$table, estimand = "positive_abundance")
+))
+rownames(estimand_audit) <- NULL
+
+head(estimand_audit[c(
+  "estimand", "feature", "status", "model_effect", "model_std_error",
+  "p_value", "p_adjust", "n", "n_detected", "detection_rate"
+)])
 ```
 
-The previous 181-feature result was not evidence of a near-global feeding
-effect. It selected the smallest p-value among several smooth terms. The later
-nested-GAM replacement was also unsuitable: its difference smooths could be
-shrunk to zero and its conclusions changed with the spline basis. The current
-test asks directly whether any fitted group contrast separates inside the
-prespecified feeding window while accounting for correlation across the time
-grid.
+Four positive-abundance models fail because at least one feeding group has no
+positive observations for that species. That is a support failure worth
+reporting, not a zero to conceal. The long table is convenient for comparison,
+but each estimand keeps its own BH family because the three rows for one species
+answer different biological questions.
 
-# Hallmark early colonizers enter after ranking
+# Stress the result across composition and rank
 
-The screen itself does not preselect taxa. After fitting, label familiar infant
-gut colonizers so the result table can be read biologically.
+```{r sensitivity-screens}
+feeding_renormalized <- test_assay_features(
+  ds, assay = "taxa", features = eligible_features,
+  subject = "subject", time = "ageMonths",
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure")),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(transform = "log1p", spline_k = 3,
+    na_action = "explicit", sparse_min_n = 5),
+  hypothesis = "critical_period_level", test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_window = c(3, 5), null_control = fast_null,
+  composition_policy = "renormalize", error_action = "continue"
+)
 
-```{r posthoc-labeling, eval = FALSE}
-known_colonizer_pattern <- paste(
+genus_taxa <- aggregate_taxa(taxa, tax_level = "genus")
+genus_ds <- ds
+genus_ds$assays$taxa <- genus_taxa
+eligible_genera <- names(which(colMeans(genus_taxa > 0) >= 0.20))
+
+feeding_genera <- test_assay_features(
+  genus_ds, assay = "taxa", features = eligible_genera,
+  subject = "subject", time = "ageMonths",
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure")),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(transform = "log1p", spline_k = 3,
+    na_action = "explicit", sparse_min_n = 5),
+  hypothesis = "critical_period_level", test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_window = c(3, 5), null_control = fast_null,
+  error_action = "continue"
+)
+
+community_ds <- ds
+community_ds$assays$community <- community_features(taxa)
+feeding_community <- test_assay_features(
+  community_ds, assay = "community",
+  subject = "subject", time = "ageMonths",
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure")),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(spline_k = 3, na_action = "explicit", sparse_min_n = 5),
+  hypothesis = "critical_period_level", test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_window = c(3, 5), null_control = fast_null,
+  error_action = "continue"
+)
+
+stats::cor(
+  feeding_screen$table$p_value,
+  feeding_renormalized$table$p_value,
+  method = "spearman",
+  use = "complete.obs"
+)
+sum(feeding_genera$table$p_adjust < 0.10, na.rm = TRUE)
+feeding_community$table[c(
+  "feature", "model_effect", "effect_level_1", "effect_level_2",
+  "p_value", "p_adjust"
+)]
+```
+
+The supplied and renormalized species rankings are nearly identical in this
+run, while genus aggregation changes which biological units lead. The
+community table asks a broader succession question without pretending that one
+species must carry the full feeding signal. In the fast audit, breastfed infants
+have lower fitted richness and Shannon diversity than formula-fed infants near
+four months, consistent with delayed acquisition of an adult-like diverse
+community. These remain provisional coefficient-null results.
+
+That is the right use of sensitivity analysis: it shows which conclusions
+survive a reasonable representation change without pretending species, genera,
+and community summaries are interchangeable hypotheses.
+
+# Put the community conclusion through the empirical gate
+
+Five prespecified community endpoints are small enough to support empirical
+refitting in the executable lecture. The reduced null removes feeding group but
+retains the shared smooth trajectory and subject structure. One wild-bootstrap
+multiplier moves all residuals from a child together.
+
+```{r community-empirical-null}
+feeding_community_empirical <- test_assay_features(
+  community_ds, assay = "community",
+  subject = "subject", time = "ageMonths",
+  covariates = list(group_effect("feeding_4mo", role = "derived_exposure")),
+  design = varying_trajectory("feeding_4mo"),
+  control = trajectory_control(spline_k = 3, na_action = "explicit", sparse_min_n = 5),
+  hypothesis = "critical_period_level", test_covariate = "feeding_4mo",
+  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
+  test_window = c(3, 5),
+  null_control = trajectory_null_control(
+    method = "cluster_wild_bootstrap",
+    simulations = 199,
+    seed = 29,
+    cores = 4
+  ),
+  error_action = "stop"
+)
+
+feeding_community_empirical$table[c(
+  "feature", "model_effect", "effect_level_1", "effect_level_2",
+  "p_value", "p_adjust", "null_method", "null_failed_simulations"
+)]
+```
+
+Richness and Shannon diversity are lower in the exclusively breastfed
+trajectory than in the exclusively formula-fed trajectory around four months
+(`p = 0.020` and `0.025`; both `q = 0.0625`). Dominance points in the reciprocal
+direction (`p = 0.075`, `q = 0.125`). This is a recognizable early-life
+succession result: exclusive breastfeeding is associated with a less rich,
+less even, more dominated community at this critical period, consistent with
+later acquisition of an adult-like diverse community.
+
+The species screen remains useful for localization, but the broad biological
+claim is validated at the community level where it was actually formulated.
+
+As an independent design-null audit, subject-label permutation preserves every
+child's complete trajectory and reassigns only the subject-static feeding label.
+It gives `p = 0.025` for richness and `p = 0.045` for Shannon diversity; both
+adjust to `q = 0.1125` across the five community endpoints. The direction and
+raw evidence therefore reproduce across null constructions, while the
+`q < 0.10` classification does not. We report a supported community succession
+signal whose multiplicity boundary remains calibration-sensitive.
+
+# Now audit hallmark colonizers
+
+Only after ranking do we attach biological labels.
+
+```{r hallmark-audit}
+hallmark_pattern <- paste(
   c(
-    "Bifidobacterium",
-    "Bacteroides",
-    "Phocaeicola",
-    "Escherichia",
-    "Enterococcus",
-    "Streptococcus",
-    "Veillonella",
-    "Lactobacillus",
-    "Akkermansia"
+    "Bifidobacterium", "Bacteroides", "Escherichia", "Enterococcus",
+    "Staphylococcus", "Streptococcus", "Veillonella", "Clostridium"
   ),
   collapse = "|"
 )
 
-ranked_features <- feeding_4mo_tests$table[
-  order(feeding_4mo_tests$table$p_adjust, feeding_4mo_tests$table$p_value),
-]
-
-ranked_features$colonizer_label <- ifelse(
-  grepl(known_colonizer_pattern, ranked_features$feature),
-  "known_landmark",
-  "unexpected_or_less_canonical"
-)
-
-table(
-  ranked_features$colonizer_label[
-    ranked_features$status == "ok" & ranked_features$p_adjust < 0.05
-  ]
-)
+hallmark_rows <- grepl(hallmark_pattern, ranked$feature)
+ranked[hallmark_rows, c(
+  "feature", "p_value", "p_adjust", "model_effect",
+  "effect_level_1", "effect_level_2"
+)][1:min(20, sum(hallmark_rows)), ]
 ```
 
-The strict q < 0.05 set contains 12 features. Familiar early-life organisms are
-present, but the result is not restricted to a hand-picked colonizer list.
+This ordering matters. *Bifidobacterium* is a valuable positive-control family,
+but it did not receive a private screen. Known biology is used to judge whether
+the resulting evidence is plausible, not to decide which columns were allowed
+to generate evidence.
 
-The leading results included familiar infant-associated taxa and organisms more
-suggestive of broader gut maturation:
+Under the `k = 3` total-abundance estimand, *Bifidobacterium breve* is among the
+provisional findings and the fitted breast-versus-formula contrast has the
+expected direction. *B. longum* has the same direction but weaker evidence.
+That is a biologically recognizable result, not permission to stop validating
+the null.
 
-```{r observed-top-hits}
-observed_top_hits <- data.frame(
-  feature = c(
-    "Sellimonas_intestinalis",
-    "Flavonifractor_plautii",
-    "Granulicatella_SGB8255",
-    "Lacticaseibacillus_rhamnosus",
-    "Actinomyces_SGB17168",
-    "Enterococcus_casseliflavus",
-    "Actinomyces_sp_HMSC065F12",
-    "TM7_phylum_sp_oral_taxon_352",
-    "Robinsoniella_peoriensis",
-    "Actinomyces_sp_ph3",
-    "Citrobacter_freundii",
-    "Streptococcus_lactarius"
-  ),
-  p_value = c(rep(0.0005, 8), 0.001, 0.001, 0.0015, 0.0025),
-  q_value = c(rep(0.01375, 8), 0.022, 0.022, 0.030, 0.04583),
-  max_separation_month = c(
-    4.17, 4.38, 4.24, 4.66, 4.03, 4.10, 4.45, 4.03,
-    4.38, 3.83, 3.00, 4.52
-  )
-)
+# What leaves this lecture
 
-observed_top_hits
+We now have:
+
+- a reproducible all-eligible 66-species screen;
+- a ranked table with raw and FDR-adjusted evidence;
+- an integrated critical-period contrast of full smooth trajectories;
+- separate occurrence and positive-abundance trajectory screens;
+- explicit composition and genus-rank sensitivity analyses;
+- an explicitly provisional fast-null tier awaiting empirical confirmation;
+- a post-ranking audit of hallmark colonizers.
+
+Lecture 4 takes one benchmark from this screen and asks a harder question:
+what is the fitted model actually saying about the observations, uncertainty,
+and rate of change?
+
+```{r next-lecture, eval = FALSE}
+vignette("spline-fitting", package = "LEVAiM")
 ```
-
-The strongest separations cluster near four months, as they should for this
-question. `Enterococcus`, `Streptococcus`, `Lacticaseibacillus`, and
-`Actinomyces` provide recognizable early-life signals. These remain statistical
-discoveries rather than automatic mechanistic claims.
-
-# Audit the Bifidobacterium positive control
-
-Feeding-associated bifidobacteria are a required biological audit, not a reason
-to preselect the screen. The complete genus pattern is therefore inspected
-after ranking:
-
-```{r observed-bifidobacteria}
-observed_bifidobacteria <- data.frame(
-  feature = c(
-    "Bifidobacterium_breve",
-    "Bifidobacterium_longum",
-    "Bifidobacterium_adolescentis",
-    "Bifidobacterium_pseudocatenulatum",
-    "Bifidobacterium_catenulatum",
-    "Bifidobacterium_dentium",
-    "Bifidobacterium_bifidum"
-  ),
-  p_value = c(0.0055, 0.0855, 0.0865, 0.359, 0.400, 0.423, 0.595),
-  q_value = c(0.0756, 0.4325, 0.4325, 1, 1, 1, 1),
-  max_separation_month = c(4.79, 4.52, 3.62, 5.00, 3.69, 4.17, 5.00)
-)
-
-observed_bifidobacteria
-```
-
-`B. breve` is suggestive after assay-wide FDR correction (q = 0.0756).
-`B. longum` has the expected localized ordering but weaker three-group omnibus
-evidence (p = 0.0855). In the prespecified exclusive-breastfed versus
-exclusive-formula contrast over 3 to 5 months, its covariance-calibrated p-value
-is 0.0355 and its maximum separation occurs near 4.52 months. The fitted
-exclusive-breastfed minus formula difference near four months is approximately
-0.77 log units. Mixed feeding is intermediate, which weakens the three-group
-test without erasing the targeted contrast.
-
-# Summarize trajectory moments
-
-Pointwise contrasts locate separation, but biologists also need a compact
-description of what each curve does. `trajectory_moments()` converts fitted
-curves into a long table of level, AUC, temporal variation, amplitude, timing,
-trend, velocity, and conditional turning-point summaries. The model is still
-fit over all ages; moments are reported inside declared biological windows.
-
-```{r trajectory-moments, eval = FALSE}
-moment_windows <- data.frame(
-  label = c("early", "feeding_window", "later"),
-  start = c(0, 3, 5),
-  end = c(3, 5, 12)
-)
-
-b_longum_feature <- grep(
-  "s__Bifidobacterium_longum$",
-  colnames(taxa),
-  value = TRUE
-)
-
-b_longum_followup <- test_assay_features(
-  ds_4mo,
-  assay = "taxa",
-  features = b_longum_feature,
-  subject = "subject",
-  time = "ageMonths",
-  covariates = list(
-    group_effect("feeding_4mo", role = "derived_exposure")
-  ),
-  design = varying_trajectory("feeding_4mo"),
-  control = trajectory_control(
-    engine = "spline",
-    transform = "log1p",
-    spline_k = 6,
-    na_action = "explicit",
-    sparse_min_n = 5
-  ),
-  hypothesis = "trajectory_difference",
-  test_covariate = "feeding_4mo",
-  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
-  test_time_values = seq(3, 5, length.out = 30),
-  keep_fits = TRUE,
-  error_action = "stop"
-)
-
-b_longum_moments <- trajectory_moments(
-  b_longum_followup$fits[[b_longum_feature]],
-  n = 181,
-  windows = moment_windows,
-  levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
-  draws = 500,
-  seed = 7
-)
-
-b_longum_moment_comparisons <- compare_trajectory_moments(
-  b_longum_moments,
-  reference = "ExclFormulaFed"
-)
-```
-
-The same fitted objects and DataFrames drive the plotting layer:
-
-```{r moment-plots, eval = FALSE}
-plot_trajectory_report(
-  b_longum_followup$fits[[b_longum_feature]],
-  levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
-  window = c(3, 5),
-  points = TRUE
-)
-
-b_longum_contrasts <- trajectory_contrasts(
-  b_longum_followup$fits[[b_longum_feature]],
-  time_values = seq(3, 5, length.out = 80),
-  levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed")
-)
-
-plot_trajectory_contrasts(b_longum_contrasts)
-
-plot_trajectory_moments(
-  b_longum_moments,
-  moment = c("mean_level", "auc", "linear_trend", "peak_time"),
-  window = "feeding_window"
-)
-
-plot_trajectory_moment_comparisons(
-  b_longum_moment_comparisons,
-  moment = c("mean_level", "auc", "linear_trend", "peak_value"),
-  window = "feeding_window"
-)
-```
-
-The completed `B. longum` feeding-window report is compact enough to inspect
-directly:
-
-```{r observed-b-longum-moments}
-observed_b_longum_moments <- data.frame(
-  feeding_group = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
-  mean_level = c(2.160, 1.409, 1.673),
-  mean_level_lower = c(1.900, 0.779, 1.170),
-  mean_level_upper = c(2.421, 1.997, 2.126),
-  auc_3_to_5 = c(4.184, 2.730, 3.241),
-  linear_trend = c(0.191, 0.016, 0.103),
-  peak_time = c(4.991, 4.321, 4.991),
-  peak_status = c(
-    "boundary_only",
-    "interior_supported",
-    "boundary_only"
-  )
-)
-
-observed_b_longum_moments
-```
-
-Exclusive breastfeeding exceeds formula feeding by 0.751 fitted log units in
-mean level (95% simulation interval 0.093 to 1.469; simulation-tail p = 0.028)
-and by 1.455 AUC units (0.180 to 2.845; p = 0.028). Its fitted peak value is
-also higher by 0.884 units (0.170 to 1.588; p = 0.016). These are prespecified
-moment summaries, not independent discoveries; after correcting across every
-moment, window, and feeding comparison in the complete report, their q-values
-are 0.311. Most importantly, the breastfed and mixed maxima occur at the end of
-the 3-to-5 month window and are labeled `boundary_only`. The model supports
-continued rise through the window, not an estimated biological peak at month 5.
-
-# Retain fits for trajectory comparisons
-
-Once the screen has ranked features, refit a small follow-up set with retained
-fits. This is the bridge from "which features are significant?" to "which
-trajectories look coordinated?"
-
-```{r retained-fits, eval = FALSE}
-follow_up_features <- head(
-  ranked_features$feature[
-    ranked_features$status == "ok" & ranked_features$p_adjust < 0.05
-  ],
-  8
-)
-
-feeding_4mo_followup <- test_assay_features(
-  ds_4mo,
-  assay = "taxa",
-  features = follow_up_features,
-  subject = "subject",
-  time = "ageMonths",
-  covariates = list(
-    group_effect("feeding_4mo", role = "derived_exposure")
-  ),
-  design = varying_trajectory("feeding_4mo"),
-  control = trajectory_control(
-    engine = "spline",
-    transform = "log1p",
-    spline_k = 6,
-    na_action = "explicit",
-    sparse_min_n = 5
-  ),
-  hypothesis = "trajectory_difference",
-  test_covariate = "feeding_4mo",
-  test_levels = c("ExclBreastFed", "ExclFormulaFed", "Mixed"),
-  test_time_values = seq(3, 5, length.out = 30),
-  test_simulations = 1999,
-  test_seed = 1,
-  keep_fits = TRUE,
-  error_action = "continue"
-)
-```
-
-The retained follow-up run uses the first eight FDR-significant taxa. The fitted
-features were:
-
-```{r observed-followup-features}
-observed_followup_features <- data.frame(
-  feature = c(
-    "Sellimonas_intestinalis",
-    "Flavonifractor_plautii",
-    "Granulicatella_SGB8255",
-    "Lacticaseibacillus_rhamnosus",
-    "Actinomyces_SGB17168",
-    "Enterococcus_casseliflavus",
-    "Actinomyces_sp_HMSC065F12",
-    "TM7_phylum_sp_oral_taxon_352"
-  ),
-  q_value = rep(0.01375, 8),
-  max_separation_month = c(4.17, 4.38, 4.24, 4.66, 4.03, 4.10, 4.45, 4.03)
-)
-
-observed_followup_features
-```
-
-# Compare trajectories
-
-`compare_trajectories()` returns the analysis layer biologists and
-biostatisticians will ask for: a long data frame. Each row is a feature pair,
-a metadata stratum, a time window, a metric, and its descriptive evidence.
-
-```{r compare-trajectories, eval = FALSE}
-trajectory_comparison <- compare_trajectories(
-  feeding_4mo_followup,
-  n = 30,
-  metrics = c(
-    "fitted_correlation",
-    "fitted_distance",
-    "derivative_correlation"
-  )
-)
-
-head(trajectory_comparison)
-```
-
-In the corrected follow-up, the comparison table had 336 rows across the
-exclusive-breastfed, exclusive-formula-fed, mixed, and unknown `feeding_4mo`
-groups. The smallest fitted distances in the exclusive-breastfed stratum link
-`Sellimonas_intestinalis` with `Flavonifractor_plautii`; the same pair is also
-nearly coincident in the mixed-feeding stratum. `Sellimonas` and the TM7 feature
-form another close exclusive-breastfeeding pair. These are concrete
-co-trajectory hypotheses for follow-up, not proof that the organisms interact
-or share a mechanism.
-
-The p-values in this table are deliberately labeled as descriptive. The fitted
-grid points are not independent biological observations.
-
-# Generate a distance matrix
-
-Heatmap inputs are derived from the long comparison table. This keeps the
-statistical evidence table as the source of truth and lets plotting code choose
-which group and time window to visualize.
-
-```{r distance-matrix, eval = FALSE}
-feeding_4mo_distance <- trajectory_distance_matrix(
-  trajectory_comparison
-)
-
-feeding_4mo_distance
-```
-
-The completed run produced an 8-by-8 fitted-distance matrix for the first
-available fitted-distance stratum, the exclusive-breastfed trajectory group.
-The matrix is heatmap-ready, but its biological reading still depends on the
-chosen stratum and the stability of that stratum. The long table remains the
-source of truth when a specific feeding group or time window is required.
-
-# Interpretation
-
-This vignette supports three conclusions.
-
-First, deriving `feeding_4mo` changes the question in a useful way. The model is
-no longer asking only whether the sample's current feeding state matches the
-sample's current abundance. It asks whether early feeding history stratifies the
-trajectory.
-
-Second, the result is selective rather than global. Twelve features support
-feeding-window trajectory separation at q < 0.05, and `B. breve` reaches the
-q < 0.10 tier. `B. longum` supports the targeted exclusive-breastfeeding versus
-formula contrast but not the broader three-group assay-wide discovery claim.
-
-Third, the corrected 3-to-5 month window materially improves exposure support.
-Unknown `feeding_4mo` is no longer the dominant stratum, although exclusive
-formula feeding remains smaller than exclusive breastfeeding. Those levels
-should remain in the model frame so samples are not silently discarded, but
-formula-specific claims should still be treated as follow-up hypotheses.

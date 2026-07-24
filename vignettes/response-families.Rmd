@@ -1,8 +1,8 @@
 ---
-title: "Modeling occurrence and positive abundance"
+title: "07. Match the model to the response"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Modeling occurrence and positive abundance}
+  %\VignetteIndexEntry{07. Match the model to the response}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -17,6 +17,10 @@ knitr::opts_chunk$set(
 ```{r setup}
 library(LEVAiM)
 ```
+
+**Course position:** Lecture 7 of 9<br>
+**Previously:** `vignette("trajectory-analysis", package = "LEVAiM")`<br>
+**Next:** `vignette("gp-crash-course", package = "LEVAiM")`
 
 # Ask the response a question it can answer
 
@@ -34,6 +38,9 @@ This vignette uses *Bifidobacterium longum* to separate two questions:
 
 These models do not jointly constitute a zero-inflated beta model. They are an
 explicit two-part analysis with separately interpretable estimands.
+Both are age-only models so we can isolate the response-family choice. A
+feeding analysis would add the derived `feeding_4mo` exposure and trajectory
+design from Lectures 2–4 to each part separately.
 
 # Load the longitudinal profile
 
@@ -41,6 +48,9 @@ explicit two-part analysis with separately interpretable estimands.
 input_dir <- file.path("..", "examples", "input_files")
 if (!dir.exists(input_dir)) {
   input_dir <- file.path("examples", "input_files")
+}
+if (!dir.exists(input_dir)) {
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -123,6 +133,12 @@ occurrence_cv <- cross_validate_trajectory(
 cv_summary(occurrence_cv)
 ```
 
+The fitted detection probability rises from about 0.74 at birth to 0.89 by
+roughly 3.5 months. Three-fold subject-grouped validation gives log loss near
+0.42 and Brier score near 0.13. Those values are usable diagnostics, but without
+a prevalence-only comparator they are not evidence that the smooth improves
+out-of-subject prediction.
+
 # Model abundance conditional on detection
 
 The beta model excludes non-detections because their conditional positive
@@ -161,6 +177,11 @@ positive_cv <- cross_validate_trajectory(
 cv_summary(positive_cv)
 ```
 
+Among detected samples, fitted positive abundance rises from about 0.09 at
+birth to 0.18 by roughly 3.5 months. Grouped-CV RMSE is about 0.18 on the
+fraction scale. This is appreciable error for a bounded response and should not
+be hidden behind the cleaner-looking fitted mean.
+
 # Interpret the two trajectories together
 
 The occurrence trajectory estimates when *B. longum* is likely to be present.
@@ -181,7 +202,7 @@ engine changes. GP fitting maps `family = "binomial"` to a Bernoulli likelihood
 and `family = "beta"` to beta regression. Exact and Hilbert-space approximate
 GPs are both available.
 
-```{r gp-family-controls, eval = FALSE}
+```{r gp-family-controls}
 occurrence_gp_mf <- model_frame(
   ds,
   trajectory(occurrence_spec),
@@ -203,4 +224,17 @@ positive_gp_mf <- model_frame(
     gp_basis_k = 20
   )
 )
+
+occurrence_gp_mf$formula
+positive_gp_mf$formula
+```
+
+# Pass the baton
+
+Splines and GPs can answer the same occurrence and positive-abundance
+questions, but they encode temporal smoothness differently. Lecture 8 pauses
+the fitting workflow and builds the GP intuition needed to make that choice.
+
+```{r next-lecture, eval = FALSE}
+vignette("gp-crash-course", package = "LEVAiM")
 ```

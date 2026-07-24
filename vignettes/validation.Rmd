@@ -1,45 +1,41 @@
 ---
-title: "Validating a screen-derived trajectory model"
+title: "05. Challenge the trajectory with held-out children"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Validating a screen-derived trajectory model}
+  %\VignetteIndexEntry{05. Challenge the trajectory with held-out children}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include = FALSE}
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
-)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
 ```{r setup}
 library(LEVAiM)
 ```
 
-# Overview
+**Course position:** Lecture 5 of 9<br>
+**Previously:** `vignette("spline-fitting", package = "LEVAiM")`<br>
+**Next:** `vignette("trajectory-analysis", package = "LEVAiM")`
 
-Once the all-feature screen nominates follow-up targets, validation asks whether
-a fitted trajectory behaves sensibly when whole subjects are held out. Repeated
-samples from the same subject must never be split across train and test sets.
-This vignette covers:
+# Why ordinary row-wise CV is wrong here
 
-1. grouped fold generation;
-2. repeated grouped cross-validation;
-3. aggregate validation summaries;
-4. held-out prediction tables.
+If one child contributes samples at birth, four months, and twelve months, a
+row-wise split can train on two visits and claim to predict the third. That is
+not prediction for a new child. It leaks subject identity and stable biology
+across the split.
 
-# Prepare example data and model frame
+Our validation unit is therefore the child. Every fold places all samples from
+one subject entirely in training or entirely in testing.
 
-Run the all-feature screen first, then set `feature` from the ranked result
-table. The chunk below is not evaluated during vignette builds because it
-depends on that completed screen.
+# Rebuild the Lecture 4 model frame
 
-```{r model-frame, eval = FALSE}
+```{r model-frame}
 input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) input_dir <- file.path("examples", "input_files")
 if (!dir.exists(input_dir)) {
-  input_dir <- file.path("examples", "input_files")
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -47,7 +43,6 @@ metadata <- read.csv(
   check.names = FALSE,
   stringsAsFactors = FALSE
 )
-
 taxa <- read_metaphlan(
   file.path(
     input_dir,
@@ -58,79 +53,133 @@ taxa <- read_metaphlan(
   include_unclassified = FALSE,
   clean_sample_names = TRUE
 )
-
-shared_samples <- intersect(metadata$sample, rownames(taxa))
-metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+shared <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared, metadata$sample), , drop = FALSE]
 rownames(metadata) <- metadata$sample
 taxa <- taxa[rownames(metadata), , drop = FALSE]
-
 metadata$subject <- factor(metadata$subject)
 
-ds <- LongitudinalDataset(
-  assays = list(taxa = taxa),
-  metadata = metadata,
-  time_col = "ageMonths",
-  subject_col = "subject"
+ds <- LongitudinalDataset(list(taxa = taxa), metadata, "ageMonths", "subject")
+ds <- derive_time_varying_features(
+  ds,
+  "feeding_state",
+  list(feeding_4mo = exposure_window(3, 5, method = "modal"))
 )
-
-ranked_features <- feature_tests$table[
-  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
-]
-feature <- ranked_features$feature[ranked_features$status == "ok"][[1]]
+b_longum <- grep("s__Bifidobacterium_longum$", colnames(taxa), value = TRUE)
 
 spec <- model_spec(
-  response = assay_feature("taxa", feature),
-  subject = subject_var("subject"),
-  time = time_var("ageMonths")
+  assay_feature("taxa", b_longum),
+  subject_var("subject"),
+  time_var("ageMonths"),
+  list(group_effect("feeding_4mo", role = "derived_exposure"))
 )
-
 mf <- model_frame(
   ds,
-  trajectory(spec),
-  control = trajectory_control(
-    engine = "spline",
-    transform = "log1p",
-    spline_k = 6
+  trajectory(spec, varying_trajectory("feeding_4mo")),
+  trajectory_control(
+    engine = "spline", transform = "log1p", spline_k = 3,
+    na_action = "explicit", sparse_min_n = 5
   )
 )
 ```
 
-# Inspect grouped folds
+# Inspect the split before trusting it
 
-```{r folds, eval = FALSE}
-folds <- grouped_cv_folds(
-  mf$data,
-  group = "subject",
-  v = 3,
-  seed = 1
-)
+```{r grouped-folds}
+folds <- grouped_cv_folds(mf$data, group = "subject", v = 5, seed = 7)
 
-str(folds, max.level = 1)
+fold_audit <- do.call(rbind, lapply(folds, function(fold) {
+  train_subjects <- unique(as.character(mf$data$subject[fold$train]))
+  test_subjects <- unique(as.character(mf$data$subject[fold$test]))
+  data.frame(
+    fold = fold$fold,
+    train_subjects = length(train_subjects),
+    test_subjects = length(test_subjects),
+    overlap = length(intersect(train_subjects, test_subjects))
+  )
+}))
+fold_audit
 ```
 
-# Run grouped cross-validation
+Every overlap must be zero. This is a structural test, not a hopeful assumption.
 
-```{r cross-validation, eval = FALSE}
+# Run repeated subject-grouped validation
+
+```{r cross-validation}
 cv <- cross_validate_trajectory(
   mf,
-  v = 3,
-  group = "subject",
+  v = 5,
   repeats = 2,
-  keep_predictions = TRUE,
-  seed = 1
+  seed = 7,
+  keep_predictions = TRUE
 )
-
-cv
-```
-
-# Summarize validation performance
-
-```{r validation-output, eval = FALSE}
 cv_summary(cv)
-head(cv_predictions(cv))
 ```
 
-# Continue
+RMSE and MAE are prediction-scale summaries for the transformed response. They
+do not validate the feeding exposure, establish causality, or prove every local
+wiggle. They tell us how this specification predicts observations from children
+not used to fit that fold.
 
-Use `vignette("feature-testing", package = "LEVAiM")` to apply the same model
-operation across multiple assay features.
+Here RMSE ranges from about 1.04 to 1.29 and MAE from 0.80 to 0.99 across ten
+held-out folds. The spread is reasonably stable, but this lecture has not fit a
+null or simpler benchmark model. Stability alone therefore does not establish
+good predictive performance.
+
+# Prediction and the null answer different questions
+
+Grouped CV asks whether the fitted specification travels to children who were
+not used for estimation. The Lecture 3 critical-period null asks whether the
+integrated separation of smooth feeding-group trajectories is unusual under a
+reduced model with no focal feeding group, a shared trajectory, and the same
+subject structure. The centered-shape null is a different hypothesis and
+retains constant group offsets. Neither null substitutes for CV.
+
+The same blocking unit appears in both procedures for different reasons. CV
+holds out whole children. The Gaussian trajectory null applies one
+wild-bootstrap multiplier to all residuals from a child. Both prevent repeated
+observations from masquerading as independent evidence.
+
+```{r null-engine-contract}
+trajectory_null_control(
+  method = "cluster_wild_bootstrap",
+  simulations = 999,
+  seed = 7
+)
+```
+
+This constructs the control object but does not rerun the null fits from
+Lecture 3. It makes the validation contract explicit: prediction
+error, empirical hypothesis calibration, effect magnitude, and multiplicity
+are four separate outputs.
+
+# Inspect errors instead of keeping one score
+
+```{r held-out-predictions}
+held_out <- cv_predictions(cv)
+head(held_out)
+
+held_out$residual <- held_out$observed - held_out$predicted
+aggregate(
+  abs(held_out$residual),
+  list(repetition = held_out[["repeat"]], fold = held_out$fold),
+  mean
+)
+```
+
+The prediction table is the durable object. It lets us inspect whether errors
+concentrate at a particular age, feeding group, fold, or subject instead of
+letting one average score close the discussion.
+
+The first rows already show the practical issue: some observed zeros receive
+predictions near 2 on the modeled scale. That is a reason to inspect occurrence
+separately in Lecture 7, not a detail to average away.
+
+# Pass the baton
+
+Lecture 6 leaves the single-organism view and asks which fitted microbial
+trajectories resemble one another.
+
+```{r next-lecture, eval = FALSE}
+vignette("trajectory-analysis", package = "LEVAiM")
+```

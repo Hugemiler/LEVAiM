@@ -1,8 +1,8 @@
 ---
-title: "Fitting and interpreting a real-data Gaussian process"
+title: "09. Fit and diagnose a real-data GP"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Fitting and interpreting a real-data Gaussian process}
+  %\VignetteIndexEntry{09. Fit and diagnose a real-data GP}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -18,6 +18,10 @@ run_gp <- identical(Sys.getenv("LEVAIM_RUN_GP_VIGNETTE"), "true")
 ```{r setup}
 library(LEVAiM)
 ```
+
+**Course position:** Lecture 9 of 9<br>
+**Previously:** `vignette("gp-crash-course", package = "LEVAiM")`<br>
+**Syllabus:** `vignette("course-overview", package = "LEVAiM")`
 
 # Follow a biological benchmark through the GP backend
 
@@ -43,6 +47,9 @@ backend mechanics; it is not biological evidence.
 input_dir <- file.path("..", "examples", "input_files")
 if (!dir.exists(input_dir)) {
   input_dir <- file.path("examples", "input_files")
+}
+if (!dir.exists(input_dir)) {
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -73,6 +80,11 @@ ds <- LongitudinalDataset(
   metadata = metadata,
   time_col = "ageMonths",
   subject_col = "subject"
+)
+ds <- derive_time_varying_features(
+  ds,
+  exposure = "feeding_state",
+  summaries = list(feeding_4mo = exposure_window(3, 5, method = "modal"))
 )
 
 b_longum <- grep("s__Bifidobacterium_longum$", colnames(taxa), value = TRUE)
@@ -208,7 +220,7 @@ head(predict(restored_gp, newdata = gp_mf$data))
 If the initial full-cohort fit fails its diagnostic gate, increase MCMC depth or
 revise the specification before reporting posterior derivatives or moments.
 
-```{r production-controls, eval = FALSE}
+```{r production-controls}
 production_control <- trajectory_control(
   engine = "gp",
   gp_kernel = "matern32",
@@ -233,7 +245,7 @@ Set `gp_basis_k` to use the Hilbert-space approximation implemented by
 is an approximation control and should be checked for sensitivity; it is not a
 generic sparsity threshold for the microbiome assay.
 
-```{r gp-expanded-controls, eval = FALSE}
+```{r gp-expanded-controls}
 approximate_control <- trajectory_control(
   engine = "gp",
   gp_kernel = "matern52",
@@ -253,7 +265,7 @@ Matern-5/2. Gaussian, binomial, and beta response families share the same GP
 trajectory API. Binomial responses must be 0/1, and beta responses must remain
 strictly inside `(0, 1)`.
 
-```{r gp-families, eval = FALSE}
+```{r gp-families}
 occurrence_control <- trajectory_control(
   engine = "gp",
   family = "binomial",
@@ -270,14 +282,27 @@ positive_abundance_control <- trajectory_control(
 Multiple covariates are declared in the model specification exactly as they are
 for splines; the response remains one assay feature at a time.
 
-```{r gp-multiple-covariates, eval = FALSE}
+```{r gp-multiple-covariates}
 adjusted_spec <- model_spec(
   response = assay_feature("taxa", b_longum),
   subject = subject_var("subject"),
   time = time_var("ageMonths"),
   covariates = list(
     group_effect("feeding_4mo", role = "derived_exposure"),
-    continuous_effect("maternal_age")
+    group_effect("country", role = "subject_static")
   )
 )
+
+adjusted_gp_mf <- model_frame(
+  ds,
+  trajectory(adjusted_spec, varying_trajectory("feeding_4mo")),
+  control = trajectory_control(
+    engine = "gp",
+    gp_kernel = "matern32",
+    gp_basis_k = 20,
+    transform = "log1p"
+  )
+)
+
+adjusted_gp_mf$formula
 ```

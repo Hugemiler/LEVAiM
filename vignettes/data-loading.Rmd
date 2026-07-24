@@ -1,8 +1,8 @@
 ---
-title: "BackhedF 2015 data loading for assay-wide trajectory discovery"
+title: "01. Meet and audit the longitudinal data"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{BackhedF 2015 data loading for assay-wide trajectory discovery}
+  %\VignetteIndexEntry{01. Meet and audit the longitudinal data}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -18,7 +18,11 @@ knitr::opts_chunk$set(
 library(LEVAiM)
 ```
 
-# Objective
+**Course position:** Lecture 1 of 9<br>
+**Syllabus:** `vignette("course-overview", package = "LEVAiM")`<br>
+**Next:** `vignette("model-specification", package = "LEVAiM")`
+
+# Today we earn the right to model
 
 We start with a concrete question: can we organize a longitudinal infant gut
 microbiome profile so that every taxonomic feature can be tested for a
@@ -37,6 +41,9 @@ BackhedF 2015 example files.
 input_dir <- file.path("..", "examples", "input_files")
 if (!dir.exists(input_dir)) {
   input_dir <- file.path("examples", "input_files")
+}
+if (!dir.exists(input_dir)) {
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata_path <- file.path(input_dir, "2026-07-08-BackhedF_Metadata.csv")
@@ -101,12 +108,11 @@ taxa <- taxa[rownames(metadata), , drop = FALSE]
 identical(rownames(taxa), rownames(metadata))
 ```
 
-# Audit the full feature universe
+# Audit the feature universe
 
 Do not choose winners at import time. First inspect the full assay: how many
-features are present, how sparse are they, and whether familiar early
-colonizers are represented. Those familiar taxa are interpretation landmarks,
-not filters.
+features are present, how sparse are they, and how many have enough measurement
+support to enter the course screen.
 
 ```{r feature-universe}
 feature_summary <- data.frame(
@@ -116,30 +122,17 @@ feature_summary <- data.frame(
   row.names = NULL
 )
 
+eligible_features <- feature_summary$feature[feature_summary$prevalence >= 0.20]
+
 head(feature_summary[order(feature_summary$mean_relative_abundance, decreasing = TRUE), ])
-
-colonizer_patterns <- c(
-  "Bifidobacterium longum" = "s__Bifidobacterium_longum$",
-  "Bifidobacterium breve" = "s__Bifidobacterium_breve$",
-  "Bacteroides fragilis" = "s__Bacteroides_fragilis$",
-  "Escherichia coli" = "s__Escherichia_coli$",
-  "Enterococcus faecalis" = "s__Enterococcus_faecalis$",
-  "Veillonella parvula" = "s__Veillonella_parvula$"
-)
-
-colonizer_features <- vapply(
-  colonizer_patterns,
-  function(pattern) grep(pattern, colnames(taxa), value = TRUE)[1],
-  character(1)
-)
-colonizer_features <- colonizer_features[!is.na(colonizer_features)]
-
-data.frame(
-  colonizer = names(colonizer_features),
-  mean_relative_abundance = colMeans(taxa[, colonizer_features, drop = FALSE]),
-  row.names = NULL
-)
+length(eligible_features)
 ```
+
+The 20% prevalence rule is declared without looking at organism names, feeding
+groups, effect sizes, or p-values. The raw table remains available, but Lecture
+3 will test 66 supported species rather than spending most of its effort on
+1,945 sparsely observed columns. Lecture 3 executes the same model on every
+eligible taxon.
 
 # Build the longitudinal object
 
@@ -159,10 +152,11 @@ ds <- LongitudinalDataset(
 ds
 ```
 
-# Continue
+# Pass the baton
 
-The next step is not fitting. It is declaring the biological question in a model
-specification:
+We now know what was read, how rows were aligned, and which species have minimum
+measurement support. The next step is not fitting. Lecture 2 declares what the
+biological question means to the model.
 
 ``` r
 vignette("model-specification", package = "LEVAiM")

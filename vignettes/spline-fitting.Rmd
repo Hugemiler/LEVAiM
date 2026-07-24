@@ -1,37 +1,42 @@
 ---
-title: "Following up a screen-derived trajectory hit"
+title: "04. Read one spline trajectory deeply"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Following up a screen-derived trajectory hit}
+  %\VignetteIndexEntry{04. Read one spline trajectory deeply}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include = FALSE}
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
-)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
 ```{r setup}
 library(LEVAiM)
 ```
 
-# Objective
+**Course position:** Lecture 4 of 9<br>
+**Previously:** `vignette("feeding-4mo-trajectories", package = "LEVAiM")`<br>
+**Next:** `vignette("validation", package = "LEVAiM")`
 
-Here we fit an inspectable trajectory for a feature nominated by the all-assay
-screen. The rule is important: first test every feature with the wrapper, then
-choose follow-up targets from the result table. The goal is not to bless a
-favorite organism. The goal is to understand the fitted trajectory behind a
-screen-derived signal.
+# A ranked row is not yet a biological story
 
-# Prepare the example data
+Lecture 3 gave us one row per species. That table is excellent for discovery,
+but a p-value cannot show whether groups separate gradually, cross each other,
+or differ only where observations are scarce.
 
-```{r load-example}
+We now follow *Bifidobacterium longum*. It is useful here for two reasons: it is
+an early-colonization benchmark, and it lets us ask whether a familiar feeding
+association is visible in the actual fitted curves. It did not bypass the
+assay-wide screen.
+
+# Reconstruct the data and exposure
+
+```{r course-data}
 input_dir <- file.path("..", "examples", "input_files")
+if (!dir.exists(input_dir)) input_dir <- file.path("examples", "input_files")
 if (!dir.exists(input_dir)) {
-  input_dir <- file.path("examples", "input_files")
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -39,7 +44,6 @@ metadata <- read.csv(
   check.names = FALSE,
   stringsAsFactors = FALSE
 )
-
 taxa <- read_metaphlan(
   file.path(
     input_dir,
@@ -50,99 +54,157 @@ taxa <- read_metaphlan(
   include_unclassified = FALSE,
   clean_sample_names = TRUE
 )
-
-shared_samples <- intersect(metadata$sample, rownames(taxa))
-metadata <- metadata[match(shared_samples, metadata$sample), , drop = FALSE]
+shared <- intersect(metadata$sample, rownames(taxa))
+metadata <- metadata[match(shared, metadata$sample), , drop = FALSE]
 rownames(metadata) <- metadata$sample
 taxa <- taxa[rownames(metadata), , drop = FALSE]
-
 metadata$subject <- factor(metadata$subject)
-metadata$feeding_state <- factor(metadata$feeding_state)
 
 ds <- LongitudinalDataset(
-  assays = list(taxa = taxa),
-  metadata = metadata,
-  time_col = "ageMonths",
-  subject_col = "subject"
+  list(taxa = taxa), metadata, "ageMonths", "subject"
 )
+ds <- derive_time_varying_features(
+  ds,
+  exposure = "feeding_state",
+  summaries = list(feeding_4mo = exposure_window(3, 5, method = "modal"))
+)
+
+b_longum <- grep("s__Bifidobacterium_longum$", colnames(taxa), value = TRUE)
+stopifnot(length(b_longum) == 1L)
 ```
 
-# Choose a follow-up feature from the screen
+# Follow the same parse-spec-build-compile-fit sequence
 
-The full screen is shown in `vignette("feature-testing", package = "LEVAiM")`.
-After running it, choose a feature from the ranked result table.
-
-```{r choose-hit, eval = FALSE}
-ranked_features <- feature_tests$table[
-  order(feature_tests$table$p_adjust, feature_tests$table$p_value),
-]
-
-feature <- ranked_features$feature[ranked_features$status == "ok"][[1]]
-feature
-```
-
-# Fit a feeding-stratified spline
-
-```{r fit-spline, eval = FALSE}
-
+```{r fit-spline}
 spec <- model_spec(
-  response = assay_feature("taxa", feature),
+  response = assay_feature("taxa", b_longum),
   subject = subject_var("subject"),
   time = time_var("ageMonths"),
-  covariates = list(group_effect("feeding_state"))
+  covariates = list(
+    group_effect("feeding_4mo", role = "derived_exposure")
+  )
 )
 
 mf <- model_frame(
   ds,
-  trajectory(spec, design = varying_trajectory("feeding_state")),
-  control = trajectory_control(
+  trajectory(spec, varying_trajectory("feeding_4mo")),
+  trajectory_control(
     engine = "spline",
     transform = "log1p",
-    spline_basis = "gam",
-    spline_k = 6,
+    spline_k = 3,
     na_action = "explicit",
     sparse_min_n = 5
   )
 )
 
+mf$formula
 fit <- fit_trajectory(mf)
-fit
-```
-
-# Summarize the fitted model
-
-`trajectory_results()` extracts the fitted model evidence without forcing users
-to parse a backend-specific object first.
-
-```{r results, eval = FALSE}
 results <- trajectory_results(fit)
 results
 ```
 
-# Inspect the fitted trajectory
+The formula is worth reading. Feeding group changes the time smooth itself;
+this is not merely a constant feeding offset added to one shared curve.
+The smooth-term p-values test time variation inside each feeding group. They do
+not test whether feeding-group trajectories differ from one another; that is
+the omnibus contrast reported in Lecture 3.
 
-The fitted effects table is the basic scientific object: age, feeding state,
-fitted abundance, and uncertainty.
+# Put fitted curves back beside observations
 
-```{r effects, fig.height = 4, eval = FALSE}
-effects <- trajectory_effects(fit, n = 20)
-head(effects)
+```{r trajectory-plot, fig.height = 4.5, fig.width = 7}
+feeding_levels <- c("ExclBreastFed", "ExclFormulaFed", "Mixed")
 
-plot_trajectory_effects(fit, effects = effects)
+plot_trajectory_report(
+  fit,
+  n = 80,
+  levels = feeding_levels,
+  window = c(3, 5)
+)
 ```
 
-# Estimate local change
+Read the plot in layers:
 
-Derivatives turn the fitted curve into a rate-of-change table. LEVAiM reports
-the rate; it does not invent a peak, valley, or phase label unless the evidence
-supports one downstream.
+1. the points show where the data actually exist;
+2. the curves show conditional fitted means;
+3. the ribbons show pointwise uncertainty;
+4. the highlighted window shows where Lecture 3 tested separation.
 
-```{r derivatives, eval = FALSE}
-derivatives <- trajectory_derivatives(fit, n = 20)
-head(derivatives)
+A compelling curve outside the observed support is still extrapolation. A
+group with few children should usually carry more uncertainty, not more faith.
+
+# Ask where groups differ
+
+The screen found the expected fitted ordering but weak three-group omnibus
+evidence for *B. longum* (`p = 0.085`). Pointwise contrasts show where that
+ordering is largest without pretending that each time point is a new
+independent discovery experiment.
+
+```{r localized-contrasts, fig.height = 4.5, fig.width = 7}
+contrasts <- trajectory_contrasts(
+  fit,
+  time_values = seq(3, 5, length.out = 40),
+  levels = feeding_levels
+)
+head(contrasts)
+plot_trajectory_contrasts(contrasts)
 ```
 
-# Continue
+# Turn the curve into rates of change
 
-Use `vignette("validation", package = "LEVAiM")` to ask whether the trajectory
-model behaves sensibly under subject-aware held-out validation.
+```{r derivatives}
+rates <- trajectory_derivatives(fit, n = 60)
+rates <- rates[as.character(rates$feeding_4mo) %in% feeding_levels, ]
+head(rates[c(
+  "ageMonths", "feeding_4mo", ".derivative",
+  ".lower_derivative", ".upper_derivative", ".sign"
+)])
+```
+
+A positive derivative means the fitted abundance is increasing locally; a
+negative derivative means it is decreasing. `uncertain` means the interval for
+the rate includes zero. LEVAiM does not force every curve to contain a peak,
+valley, or developmental phase.
+
+# Summarize the biologically named window
+
+```{r moments, fig.height = 4.5, fig.width = 7}
+moments <- trajectory_moments(
+  fit,
+  n = 100,
+  windows = data.frame(label = "feeding_window", start = 3, end = 5),
+  levels = feeding_levels,
+  draws = 300,
+  seed = 4
+)
+
+moments[moments$moment %in% c(
+  "mean_level", "auc", "linear_trend", "peak_time"
+), ]
+
+plot_trajectory_moments(
+  moments,
+  moment = c("mean_level", "auc", "linear_trend"),
+  window = "feeding_window"
+)
+```
+
+Moments compress a function into a data frame without erasing the window or
+uncertainty that gave the summary meaning. Peak times carry statuses such as
+`interior_supported` or `boundary_only`; the largest endpoint is not
+automatically a biological peak.
+
+Inside the 3-to-5-month window, the fitted mean follows the biologically
+familiar order: exclusive breastfeeding (2.16), mixed feeding (1.67), then
+exclusive formula feeding (1.41) on the modeled `log1p` scale. The uncertainty
+intervals overlap, and every window-specific linear-trend interval includes
+zero. The model therefore supports an ordered descriptive pattern, not a claim
+of three decisively separated trajectories or different growth rates.
+
+# Pass the baton
+
+We have interpreted one fitted model in-sample. Lecture 5 asks whether the same
+specification behaves sensibly when complete children are held out.
+
+```{r next-lecture, eval = FALSE}
+vignette("validation", package = "LEVAiM")
+```

@@ -1,8 +1,8 @@
 ---
-title: "A crash course in Gaussian-process trajectories"
+title: "08. A crash course in Gaussian processes"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{A crash course in Gaussian-process trajectories}
+  %\VignetteIndexEntry{08. A crash course in Gaussian processes}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -17,6 +17,10 @@ knitr::opts_chunk$set(
 ```{r setup}
 library(LEVAiM)
 ```
+
+**Course position:** Lecture 8 of 9<br>
+**Previously:** `vignette("response-families", package = "LEVAiM")`<br>
+**Next:** `vignette("gaussian-processes", package = "LEVAiM")`
 
 # Begin with the problem, not the acronym
 
@@ -346,5 +350,12 @@ Before believing a GP trajectory, ask:
 6. Are derivative and moment statements supported by posterior intervals?
 7. Is the claim predictive, associational, or mechanistic?
 
-Continue with `vignette("gaussian-processes", package = "LEVAiM")` for the
-executed full-cohort Backhed workflow.
+# Pass the baton
+
+Lecture 9 puts these ideas under pressure in an executed full-cohort Backhed
+workflow: compile, sample, diagnose, predict, differentiate, summarize, and
+serialize.
+
+```{r next-lecture, eval = FALSE}
+vignette("gaussian-processes", package = "LEVAiM")
+```

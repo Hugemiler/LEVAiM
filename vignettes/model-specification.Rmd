@@ -1,8 +1,8 @@
 ---
-title: "Specifying an assay-wide feeding trajectory screen"
+title: "02. Turn the biological question into a model"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Specifying an assay-wide feeding trajectory screen}
+  %\VignetteIndexEntry{02. Turn the biological question into a model}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -18,12 +18,16 @@ knitr::opts_chunk$set(
 library(LEVAiM)
 ```
 
-# Objective
+**Course position:** Lecture 2 of 9<br>
+**Previously:** `vignette("data-loading", package = "LEVAiM")`<br>
+**Next:** `vignette("feeding-4mo-trajectories", package = "LEVAiM")`
+
+# Today we decide what the model is allowed to mean
 
 The biological question is deliberately specific:
 
-> Which taxonomic features show trajectories that differ by feeding state over
-> infancy?
+> Which taxonomic features show trajectories that differ according to feeding
+> history around four months, defined from observations between months 3 and 5?
 
 LEVAiM separates that question into two explicit layers. First, derive
 history-aware metadata from a time-varying exposure when the question is about
@@ -36,6 +40,9 @@ can validate how those columns behave within subjects.
 input_dir <- file.path("..", "examples", "input_files")
 if (!dir.exists(input_dir)) {
   input_dir <- file.path("examples", "input_files")
+}
+if (!dir.exists(input_dir)) {
+  input_dir <- system.file("extdata", package = "LEVAiM")
 }
 
 metadata <- read.csv(
@@ -83,74 +90,66 @@ ds_history <- derive_time_varying_features(
   ds,
   exposure = "feeding_state",
   summaries = list(
-    feeding_4mo = exposure_window(3, 5, method = "modal"),
-    feeding_6mo = exposure_window(5, 7, method = "modal"),
-    ever_exclusive_breastfed = exposure_ever("ExclBreastFed"),
-    feeding_last_observed = exposure_last_observed(),
-    feeding_transition = exposure_transition()
+    feeding_4mo = exposure_window(3, 5, method = "modal")
   )
 )
 
 exposure_derivations(ds_history)
 ```
 
-# Define the assay-wide hypothesis
+# Define the assay-wide universe
 
-The response will rotate across every taxonomic feature in the assay. We do not
-preselect bifidobacteria, Bacteroides, or any other expected colonizer. The
-known biology enters after the screen, when we interpret the result table.
+The response rotates across every taxon in the prespecified eligible pool. We
+do not preselect bifidobacteria, *Bacteroides*, or any other expected colonizer;
+known biology enters after the screen, when we interpret the table.
 
 ```{r response-universe}
 assay <- "taxa"
-all_features <- colnames(taxa)
+prevalence <- colMeans(taxa > 0, na.rm = TRUE)
+eligible_features <- names(prevalence[prevalence >= 0.20])
 
-length(all_features)
-head(all_features)
+length(eligible_features)
+head(eligible_features)
 ```
 
 # Encode the reusable model pieces
 
 The per-feature wrapper builds one `model_spec()` per feature internally. The
-stable pieces are subject, time, covariates, trajectory design, and controls. A
-current-state screen and a history-derived screen are different biological
-questions, so they use different covariates.
+stable pieces are subject, time, exposure, trajectory design, and controls.
 
 ```{r specification}
 subject <- subject_var("subject")
 time <- time_var("ageMonths")
 
-current_feeding_covariates <- list(
-  group_effect("feeding_state", role = "time_varying"),
-  group_effect("anno_uncertain")
-)
-
 history_feeding_covariates <- list(
-  group_effect("feeding_4mo", role = "derived_exposure"),
-  group_effect("ever_exclusive_breastfed", role = "derived_exposure"),
-  group_effect("feeding_transition", role = "derived_exposure")
+  group_effect("feeding_4mo", role = "derived_exposure")
 )
 
-current_feeding_design <- varying_trajectory("feeding_state")
 history_feeding_design <- varying_trajectory("feeding_4mo")
 
 control <- trajectory_control(
   engine = "spline",
   transform = "log1p",
+  spline_k = 3,
   na_action = "explicit",
   missing_level = "Unknown",
   sparse_min_n = 5
 )
 ```
 
+The cohort has three biological sampling waves. We therefore cap the spline
+basis at three rather than treating small differences in recorded age as new
+longitudinal support.
+
 # Declare the trajectory contrast
 
-The key move is `varying_trajectory("feeding_state")`: we are asking for
-feeding-state-specific time curves, not just a single average curve with a
+The key move is `varying_trajectory("feeding_4mo")`: we are asking for
+feeding-history-specific time curves, not just a single average curve with a
 feeding covariate tacked on.
 
 ```{r trajectory-design}
 prototype_spec <- model_spec(
-  response = assay_feature(assay, all_features[[1]]),
+  response = assay_feature(assay, eligible_features[[1]]),
   subject = subject,
   time = time,
   covariates = history_feeding_covariates
@@ -178,10 +177,15 @@ prototype_mf <- model_frame(
 )
 
 prototype_mf
+prototype_mf$formula
 prototype_mf$preprocessing$covariate_roles
 ```
 
-# Continue
+# Pass the baton
 
-Use `vignette("feature-testing", package = "LEVAiM")` to apply this model
-template across every taxonomic feature.
+Lecture 3 applies this exact template across all eligible species. Nothing
+about organism identity enters the model factory or multiplicity family.
+
+```{r next-lecture, eval = FALSE}
+vignette("feeding-4mo-trajectories", package = "LEVAiM")
+```
