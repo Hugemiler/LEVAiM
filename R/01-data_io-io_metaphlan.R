@@ -293,6 +293,137 @@ clean_metaphlan_sample_names <- function(x) {
   x
 }
 
+
+#' Aggregate a taxonomic assay to a broader rank
+#'
+#' Sums MetaPhlAn lineage columns at a declared taxonomic rank. Composition is
+#' handled explicitly: values can be retained as supplied or renormalized to a
+#' constant row total of 100 after aggregation.
+#'
+#' @param assay A matrix or data.frame with samples in rows and MetaPhlAn
+#'   lineage identifiers in columns.
+#' @param tax_level Target rank. One of `"kingdom"`, `"phylum"`, `"class"`,
+#'   `"order"`, `"family"`, or `"genus"`.
+#' @param composition_policy One of `"as_is"` or `"renormalize"`.
+#'
+#' @return A data.frame with samples in rows and aggregated taxa in columns.
+#' @export
+aggregate_taxa <- function(
+    assay,
+    tax_level = c("genus", "family", "order", "class", "phylum", "kingdom"),
+    composition_policy = c("as_is", "renormalize")
+) {
+  tax_level <- match.arg(tax_level)
+  composition_policy <- match.arg(composition_policy)
+  assay <- as.data.frame(assay, check.names = FALSE)
+
+  if (ncol(assay) == 0L || is.null(colnames(assay))) {
+    cli::cli_abort("`assay` must have at least one named taxonomic feature.")
+  }
+  numeric_columns <- vapply(assay, is.numeric, logical(1))
+  if (!all(numeric_columns)) {
+    cli::cli_abort("Every column in `assay` must be numeric.")
+  }
+  if (any(as.matrix(assay) < 0, na.rm = TRUE)) {
+    cli::cli_abort("Taxonomic abundances must be non-negative.")
+  }
+
+  prefix <- c(
+    kingdom = "k__", phylum = "p__", class = "c__", order = "o__",
+    family = "f__", genus = "g__"
+  )[[tax_level]]
+  ranks <- vapply(
+    strsplit(colnames(assay), "|", fixed = TRUE),
+    function(parts) {
+      hit <- parts[startsWith(parts, prefix)]
+      if (length(hit)) hit[[1]] else NA_character_
+    },
+    character(1)
+  )
+  keep <- !is.na(ranks) & nzchar(ranks)
+  if (!any(keep)) {
+    cli::cli_abort(
+      "No {.val {tax_level}} identifiers were found in the assay column names."
+    )
+  }
+
+  values <- as.matrix(assay[, keep, drop = FALSE])
+  groups <- factor(ranks[keep], levels = unique(ranks[keep]))
+  aggregated <- vapply(
+    levels(groups),
+    function(group) rowSums(values[, groups == group, drop = FALSE], na.rm = TRUE),
+    numeric(nrow(values))
+  )
+  if (is.null(dim(aggregated))) {
+    aggregated <- matrix(aggregated, ncol = 1L)
+  }
+  colnames(aggregated) <- levels(groups)
+  rownames(aggregated) <- rownames(assay)
+
+  if (composition_policy == "renormalize") {
+    totals <- rowSums(aggregated, na.rm = TRUE)
+    usable <- is.finite(totals) & totals > 0
+    aggregated[usable, ] <- aggregated[usable, , drop = FALSE] /
+      totals[usable] * 100
+  }
+
+  out <- as.data.frame(aggregated, check.names = FALSE)
+  attr(out, "tax_level") <- tax_level
+  attr(out, "composition_policy") <- composition_policy
+  attr(out, "source_row_totals") <- rowSums(as.matrix(assay), na.rm = TRUE)
+  out
+}
+
+
+#' Derive community-level features from a taxonomic assay
+#'
+#' Computes prespecified sample-level summaries that can be modeled through the
+#' same longitudinal workflow as individual taxa. Diversity summaries use
+#' within-sample proportions over the supplied feature universe; profiled mass
+#' retains the original row total.
+#'
+#' @param assay A non-negative numeric matrix or data.frame with samples in rows.
+#' @param detection_threshold Abundance above which a feature contributes to
+#'   observed richness.
+#'
+#' @return A data.frame containing `richness`, `shannon`, `simpson`,
+#'   `dominance`, and `profiled_mass`.
+#' @export
+community_features <- function(assay, detection_threshold = 0) {
+  assay <- as.data.frame(assay, check.names = FALSE)
+  values <- as.matrix(assay)
+  if (ncol(values) == 0L || !is.numeric(values) || any(values < 0, na.rm = TRUE)) {
+    cli::cli_abort("`assay` must contain non-negative numeric abundances.")
+  }
+  if (!is.numeric(detection_threshold) || length(detection_threshold) != 1L ||
+      !is.finite(detection_threshold) || detection_threshold < 0) {
+    cli::cli_abort("`detection_threshold` must be one finite non-negative number.")
+  }
+
+  profiled_mass <- rowSums(values, na.rm = TRUE)
+  proportions <- matrix(0, nrow = nrow(values), ncol = ncol(values))
+  usable <- is.finite(profiled_mass) & profiled_mass > 0
+  proportions[usable, ] <- values[usable, , drop = FALSE] / profiled_mass[usable]
+  log_proportions <- matrix(0, nrow = nrow(values), ncol = ncol(values))
+  positive <- proportions > 0
+  log_proportions[positive] <- log(proportions[positive])
+
+  out <- data.frame(
+    richness = rowSums(values > detection_threshold, na.rm = TRUE),
+    shannon = -rowSums(proportions * log_proportions, na.rm = TRUE),
+    simpson = 1 - rowSums(proportions^2, na.rm = TRUE),
+    dominance = apply(proportions, 1L, max, na.rm = TRUE),
+    profiled_mass = profiled_mass,
+    row.names = rownames(assay),
+    check.names = FALSE
+  )
+  out$shannon[!usable] <- NA_real_
+  out$simpson[!usable] <- NA_real_
+  out$dominance[!usable] <- NA_real_
+  attr(out, "detection_threshold") <- detection_threshold
+  out
+}
+
 read_metaphlan_many <- function(
     paths,
     tax_level = "species",
