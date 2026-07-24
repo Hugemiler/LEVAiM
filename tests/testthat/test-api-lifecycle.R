@@ -35,11 +35,14 @@ stable_api_formals <- list(
   plot_trajectory_moments = c("moments", "moment", "window", "feature", "palette"),
   plot_trajectory_moment_comparisons = c("comparisons", "moment", "window", "feature", "q_threshold"),
   trajectory_derivatives = c("fit", "n", "time_values", "method", "level", "type", "draws", "seed", "..."),
+  trajectory_null_control = c("method", "simulations", "seed", "cores", "store_null"),
   plot_trajectory_effects = c("fit", "effects", "..."),
   test_assay_features = c(
     "ds", "assay", "features", "subject", "time", "covariates", "design",
     "control", "hypothesis", "test_covariate", "test_levels", "test_time_values",
-    "test_simulations", "test_seed", "p_adjust_method", "keep_fits", "error_action"
+    "test_center_time_values", "test_simulations", "test_seed", "null_control",
+    "test_window", "detection_threshold", "composition_policy",
+    "p_adjust_method", "fdr_level", "keep_fits", "error_action"
   ),
   compare_trajectories = c(
     "fits", "n", "time_values", "windows", "view", "metrics", "standardize",
